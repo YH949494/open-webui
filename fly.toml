@@ -1,34 +1,39 @@
-app = "yh-openwebui"
-primary_region = "sin"
+# fly.toml app configuration file generated for open-webui-26z5ca on 2026-05-19T10:41:45Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'open-webui-26z5ca'
+primary_region = 'sin'
 
 [build]
+
+[[mounts]]
+  source = 'openwebui_data'
+  destination = '/app/backend/data'
 
 [http_service]
   internal_port = 8080
   force_https = true
-  auto_stop_machines = false
+  auto_stop_machines = 'off'
   auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
+  processes = ['app']
 
   [http_service.concurrency]
-    type = "connections"
+    type = 'connections'
     hard_limit = 100
     soft_limit = 80
 
   [[http_service.checks]]
-    interval = "15s"
-    timeout = "10s"
-    grace_period = "30s"
-    method = "get"
-    path = "/health"
-    protocol = "http"
-
-[mounts]
-  source = "openwebui_data"
-  destination = "/app/backend/data"
+    interval = '15s'
+    timeout = '10s'
+    grace_period = '30s'
+    method = 'get'
+    path = '/health'
+    protocol = 'http'
 
 [[vm]]
-  cpu_kind = "shared"
+  cpu_kind = 'shared'
   cpus = 1
   memory_mb = 2048
