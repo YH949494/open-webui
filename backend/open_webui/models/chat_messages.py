@@ -422,16 +422,10 @@ class ChatMessageTable:
     ) -> dict[str, int]:
         async with get_async_db_context(db) as db:
             from open_webui.models.groups import GroupMember
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
 
-            stmt = (
-                select(ChatMessage.model_id, func.count(ChatMessage.id).label('count'))
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    ChatMessage.model_id.isnot(None),
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(ChatMessage.model_id, func.count(ChatMessage.id).label('count')).filter(
+                ChatMessage.role == 'assistant',
+                ChatMessage.model_id.isnot(None),
             )
 
             if start_date:
@@ -464,22 +458,15 @@ class ChatMessageTable:
 
             input_tokens, output_tokens = _token_columns(dialect)
 
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
-
-            stmt = (
-                select(
-                    ChatMessage.model_id,
-                    func.coalesce(func.sum(input_tokens), 0).label('input_tokens'),
-                    func.coalesce(func.sum(output_tokens), 0).label('output_tokens'),
-                    func.count(ChatMessage.id).label('message_count'),
-                )
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    ChatMessage.model_id.isnot(None),
-                    ChatMessage.usage.isnot(None),
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(
+                ChatMessage.model_id,
+                func.coalesce(func.sum(input_tokens), 0).label('input_tokens'),
+                func.coalesce(func.sum(output_tokens), 0).label('output_tokens'),
+                func.count(ChatMessage.id).label('message_count'),
+            ).filter(
+                ChatMessage.role == 'assistant',
+                ChatMessage.model_id.isnot(None),
+                ChatMessage.usage.isnot(None),
             )
 
             if start_date:
@@ -519,22 +506,15 @@ class ChatMessageTable:
 
             input_tokens, output_tokens = _token_columns(dialect)
 
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
-
-            stmt = (
-                select(
-                    ChatMessage.user_id,
-                    func.coalesce(func.sum(input_tokens), 0).label('input_tokens'),
-                    func.coalesce(func.sum(output_tokens), 0).label('output_tokens'),
-                    func.count(ChatMessage.id).label('message_count'),
-                )
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    ChatMessage.user_id.isnot(None),
-                    ChatMessage.usage.isnot(None),
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(
+                ChatMessage.user_id,
+                func.coalesce(func.sum(input_tokens), 0).label('input_tokens'),
+                func.coalesce(func.sum(output_tokens), 0).label('output_tokens'),
+                func.count(ChatMessage.id).label('message_count'),
+            ).filter(
+                ChatMessage.role == 'assistant',
+                ChatMessage.user_id.isnot(None),
+                ChatMessage.usage.isnot(None),
             )
 
             if start_date:
@@ -567,15 +547,9 @@ class ChatMessageTable:
     ) -> dict[str, int]:
         async with get_async_db_context(db) as db:
             from open_webui.models.groups import GroupMember
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
 
-            stmt = (
-                select(ChatMessage.user_id, func.count(ChatMessage.id).label('count'))
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(ChatMessage.user_id, func.count(ChatMessage.id).label('count')).filter(
+                ChatMessage.role == 'assistant',
             )
 
             if start_date:
@@ -599,15 +573,9 @@ class ChatMessageTable:
     ) -> dict[str, int]:
         async with get_async_db_context(db) as db:
             from open_webui.models.groups import GroupMember
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
 
-            stmt = (
-                select(ChatMessage.chat_id, func.count(ChatMessage.id).label('count'))
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(ChatMessage.chat_id, func.count(ChatMessage.id).label('count')).filter(
+                ChatMessage.role == 'assistant',
             )
 
             if start_date:
@@ -634,16 +602,10 @@ class ChatMessageTable:
             from datetime import datetime, timedelta
 
             from open_webui.models.groups import GroupMember
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
 
-            stmt = (
-                select(ChatMessage.created_at, ChatMessage.model_id)
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    ChatMessage.model_id.isnot(None),
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(ChatMessage.created_at, ChatMessage.model_id).filter(
+                ChatMessage.role == 'assistant',
+                ChatMessage.model_id.isnot(None),
             )
 
             if start_date:
@@ -686,16 +648,10 @@ class ChatMessageTable:
         """Get message counts grouped by hour and model."""
         async with get_async_db_context(db) as db:
             from datetime import datetime, timedelta
-            from open_webui.models.chats import Chat  # Company custom: Team Workspaces V1
 
-            stmt = (
-                select(ChatMessage.created_at, ChatMessage.model_id)
-                .join(Chat, ChatMessage.chat_id == Chat.id)
-                .filter(
-                    ChatMessage.role == 'assistant',
-                    ChatMessage.model_id.isnot(None),
-                    Chat.workspace_id.is_(None),  # Company custom: Team Workspaces V1
-                )
+            stmt = select(ChatMessage.created_at, ChatMessage.model_id).filter(
+                ChatMessage.role == 'assistant',
+                ChatMessage.model_id.isnot(None),
             )
 
             if start_date:
