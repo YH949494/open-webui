@@ -140,16 +140,7 @@ class SharedChatsTable:
     ) -> list[SharedChatResponse]:
         """List all shared chats created by a user."""
         async with get_async_db_context(db) as db:
-            from open_webui.models.chats import Chat
-
-            # Company custom: Team Workspaces V1 — exclude shared chats whose original
-            # chat belongs to a workspace. Stale shared records from workspace chats
-            # (created before this guard was added) must not appear in personal shared list.
-            stmt = (
-                select(SharedChat)
-                .join(Chat, and_(Chat.id == SharedChat.chat_id, Chat.workspace_id.is_(None)))
-                .filter(SharedChat.user_id == user_id)
-            )
+            stmt = select(SharedChat).filter_by(user_id=user_id)
 
             if filter:
                 query_key = filter.get('query')
