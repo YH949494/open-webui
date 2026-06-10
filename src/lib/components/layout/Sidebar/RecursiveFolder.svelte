@@ -698,9 +698,23 @@
 					{/if}
 				</div>
 
-				{#if !folderReadOnly}
-					<button
-						class="absolute z-10 right-2 invisible group-hover:visible self-center flex items-center dark:text-gray-300"
+				<button
+					class="absolute z-10 right-2 invisible group-hover:visible self-center flex items-center dark:text-gray-300"
+				>
+					<FolderMenu
+						onEdit={() => {
+							showFolderModal = true;
+						}}
+						onDelete={() => {
+							showDeleteConfirm = true;
+						}}
+						onExport={() => {
+							exportHandler();
+						}}
+						onCreateSubFolder={() => {
+							createSubFolderParentId = folderId;
+							showCreateSubFolderModal = true;
+						}}
 					>
 						<FolderMenu
 							onEdit={() => {
