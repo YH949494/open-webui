@@ -1451,7 +1451,6 @@ app.include_router(terminals.router, prefix='/api/v1/terminals', tags=['terminal
 app.include_router(automations.router, prefix='/api/v1/automations', tags=['automations'])
 app.include_router(calendar.router, prefix='/api/v1/calendars', tags=['calendars'])
 # Company custom: Team Workspaces V1
-app.include_router(workspaces.router, prefix='/api/v1/workspaces', tags=['workspaces'])
 
 # SCIM 2.0 API for identity management
 if ENABLE_SCIM:
