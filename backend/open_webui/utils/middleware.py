@@ -130,20 +130,6 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
-def is_persisted_chat_id(chat_id) -> bool:
-    if chat_id is None:
-        return False
-
-    value = str(chat_id).strip()
-    if not value:
-        return False
-
-    if value.lower() in {"new", "none", "null", "undefined", "temporary", "temp"}:
-        return False
-
-    # OpenWebUI persisted chat IDs are real strings/UUID-like IDs.
-    # Temporary frontend IDs should not trigger DB updates.
-    return True
 
 # We believe in one maker of all models, seen and unseen,
 # and in the reasoning which proceeds from the architect.
@@ -1719,7 +1705,7 @@ async def add_file_context(messages: list, chat_id: str, user) -> list:
     """
     Add file URLs to messages for native function calling.
     """
-    if not is_persisted_chat_id(chat_id):
+    if not chat_id or chat_id.startswith('local:') or chat_id.startswith('channel:'):
         return messages
 
     chat = await Chats.get_chat_by_id_and_user_id(chat_id, user.id)
@@ -1775,7 +1761,7 @@ async def chat_image_generation_handler(request: Request, form_data: dict, extra
     if not chat_id or not isinstance(chat_id, str) or not __event_emitter__:
         return form_data
 
-    if is_temporary_chat_id(chat_id):
+    if chat_id.startswith('local:') or chat_id.startswith('channel:'):
         message_list = form_data.get('messages', [])
     else:
         chat = await Chats.get_chat_by_id_and_user_id(chat_id, user.id)
@@ -2371,7 +2357,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     chat_id = metadata.get('chat_id')
     user_message_id = metadata.get('user_message_id')
 
-    if is_persisted_chat_id(chat_id) and user_message_id:
+    if chat_id and user_message_id and not chat_id.startswith('local:') and not chat_id.startswith('channel:'):
         db_messages = await load_messages_from_db(chat_id, user_message_id)
         if db_messages:
             # Continue: frontend sends assistant_message_id when continuing
@@ -2469,14 +2455,14 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Uses lightweight column query — only fetches folder_id, not the full chat JSON blob
     chat_id = metadata.get('chat_id', None)
     folder_id = None
-    if is_persisted_chat_id(chat_id) and user:
+    if chat_id and user:
         folder_id = await Chats.get_chat_folder_id(chat_id, user.id)
 
     # Fallback: use folder_id from metadata (temporary chats have no DB record)
     if not folder_id:
         folder_id = metadata.get('folder_id', None)
 
-    if isinstance(folder_id, str) and folder_id.strip() and user:
+    if folder_id and user:
         folder = await Folders.get_folder_by_id_and_user_id(folder_id, user.id)
 
         if folder and folder.data:
@@ -3169,7 +3155,9 @@ async def background_tasks_handler(ctx):
                             }
                         )
 
-                        if is_persisted_chat_id(metadata.get('chat_id')):
+                        if not metadata.get('chat_id', '').startswith('local:') and not metadata.get(
+                            'chat_id', ''
+                        ).startswith('channel:'):
                             await Chats.upsert_message_to_chat_by_id_and_message_id(
                                 metadata['chat_id'],
                                 metadata['message_id'],
@@ -3181,7 +3169,9 @@ async def background_tasks_handler(ctx):
                     except Exception as e:
                         pass
 
-            if is_persisted_chat_id(metadata.get('chat_id')):  # Only update titles and tags for non-temp chats
+            if not metadata.get('chat_id', '').startswith('local:') and not metadata.get('chat_id', '').startswith(
+                'channel:'
+            ):  # Only update titles and tags for non-temp chats
                 if TASKS.TITLE_GENERATION in tasks:
                     user_message = get_last_user_message(messages)
                     if user_message and len(user_message) > 100:
@@ -3305,7 +3295,7 @@ async def outlet_filter_handler(ctx):
     if not chat_id or not message_id:
         return
 
-    is_temp_chat = is_temporary_chat_id(chat_id)
+    is_temp_chat = chat_id.startswith('local:') or chat_id.startswith('channel:')
 
     try:
         messages_map = None
