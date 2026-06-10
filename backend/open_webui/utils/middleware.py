@@ -130,6 +130,20 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
+def is_persisted_chat_id(chat_id) -> bool:
+    if chat_id is None:
+        return False
+
+    value = str(chat_id).strip()
+    if not value:
+        return False
+
+    if value.lower() in {"new", "none", "null", "undefined", "temporary", "temp"}:
+        return False
+
+    # OpenWebUI persisted chat IDs are real strings/UUID-like IDs.
+    # Temporary frontend IDs should not trigger DB updates.
+    return True
 
 # We believe in one maker of all models, seen and unseen,
 # and in the reasoning which proceeds from the architect.
