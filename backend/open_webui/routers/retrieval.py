@@ -58,6 +58,7 @@ from open_webui.env import (
 from open_webui.internal.db import get_async_db, get_async_session
 from open_webui.models.files import FileModel, Files, FileUpdateForm
 from open_webui.models.knowledge import Knowledges
+from open_webui.utils.file_types import is_spreadsheet_file
 
 # Document loaders
 from open_webui.retrieval.loaders.youtube import YoutubeLoader
@@ -1591,6 +1592,36 @@ async def process_file(
             else:
                 await _validate_collection_access([collection_name], user, access_type='write')
 
+            if (
+                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
+                and is_spreadsheet_file(file.filename)
+            ):
+                log.info(f'Skipping RAG processing for spreadsheet file: {file.filename}')
+                await Files.update_file_data_by_id(
+                    file.id,
+                    {
+                        'status': 'completed',
+                        'raw_data_file': True,
+                        'process_skipped': True,
+                    },
+                    db=db,
+                )
+                await Files.update_file_metadata_by_id(
+                    file.id,
+                    {
+                        'raw_data_file': True,
+                        'process_skipped': True,
+                    },
+                    db=db,
+                )
+                return {
+                    'status': True,
+                    'collection_name': None,
+                    'filename': file.filename,
+                    'content': '',
+                    'process_skipped': True,
+                }
+
             if form_data.content:
                 # Update the content in the file
                 # Usage: /files/{file_id}/data/content/update, /files/ (audio file upload pipeline)
@@ -2649,6 +2680,7 @@ async def process_files_batch(
     file_results: list[BatchProcessFilesResult] = []
     file_errors: list[BatchProcessFilesResult] = []
     file_updates: list[FileUpdateForm] = []
+    file_update_results: list[BatchProcessFilesResult] = []
 
     # Prepare all documents first
     all_docs: list[Document] = []
@@ -2676,6 +2708,31 @@ async def process_files_batch(
                 )
                 continue
 
+            if (
+                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
+                and is_spreadsheet_file(db_file.filename)
+            ):
+                log.info(f'Skipping RAG processing for spreadsheet file: {db_file.filename}')
+                await Files.update_file_data_by_id(
+                    db_file.id,
+                    {
+                        'status': 'completed',
+                        'raw_data_file': True,
+                        'process_skipped': True,
+                    },
+                    db=db,
+                )
+                await Files.update_file_metadata_by_id(
+                    db_file.id,
+                    {
+                        'raw_data_file': True,
+                        'process_skipped': True,
+                    },
+                    db=db,
+                )
+                file_results.append(BatchProcessFilesResult(file_id=db_file.id, status='completed'))
+                continue
+
             text_content = file.data.get('content', '')
             docs: list[Document] = [
                 Document(
@@ -2698,7 +2755,9 @@ async def process_files_batch(
                     data={'content': text_content},
                 )
             )
-            file_results.append(BatchProcessFilesResult(file_id=file.id, status='prepared'))
+            file_result = BatchProcessFilesResult(file_id=file.id, status='prepared')
+            file_results.append(file_result)
+            file_update_results.append(file_result)
 
         except Exception as e:
             log.error(f'process_files_batch: Error processing file {file.id}: {str(e)}')
@@ -2717,13 +2776,13 @@ async def process_files_batch(
             )
 
             # Update all files with collection name
-            for file_update, file_result in zip(file_updates, file_results):
+            for file_update, file_result in zip(file_updates, file_update_results):
                 await Files.update_file_by_id(id=file_result.file_id, form_data=file_update, db=db)
                 file_result.status = 'completed'
 
         except Exception as e:
             log.error(f'process_files_batch: Error saving documents to vector DB: {str(e)}')
-            for file_result in file_results:
+            for file_result in file_update_results:
                 file_result.status = 'failed'
                 file_errors.append(BatchProcessFilesResult(file_id=file_result.file_id, status='failed', error=str(e)))
 
