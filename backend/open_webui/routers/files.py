@@ -267,9 +267,7 @@ async def upload_file_handler(
 
         file_extension = get_file_extension(filename)
         skip_spreadsheet_rag = (
-            process
-            and request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-            and is_spreadsheet_file(filename)
+            process and request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(filename)
         )
 
         if process and request.app.state.config.ALLOWED_FILE_EXTENSIONS:

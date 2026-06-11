@@ -23,8 +23,9 @@ def test_spreadsheet_upload_does_not_bypass_allowed_extensions():
     source = files_router.read_text()
 
     allowed_extension_check = source[
-        source.index('if process and request.app.state.config.ALLOWED_FILE_EXTENSIONS:')
-        : source.index('# replace filename with uuid')
+        source.index('if process and request.app.state.config.ALLOWED_FILE_EXTENSIONS:') : source.index(
+            '# replace filename with uuid'
+        )
     ]
 
     assert 'file_extension not in request.app.state.config.ALLOWED_FILE_EXTENSIONS' in allowed_extension_check

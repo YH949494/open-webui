@@ -1592,10 +1592,7 @@ async def process_file(
             else:
                 await _validate_collection_access([collection_name], user, access_type='write')
 
-            if (
-                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-                and is_spreadsheet_file(file.filename)
-            ):
+            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(file.filename):
                 log.info(f'Skipping RAG processing for spreadsheet file: {file.filename}')
                 await Files.update_file_data_by_id(
                     file.id,
@@ -2708,10 +2705,7 @@ async def process_files_batch(
                 )
                 continue
 
-            if (
-                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-                and is_spreadsheet_file(db_file.filename)
-            ):
+            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(db_file.filename):
                 log.info(f'Skipping RAG processing for spreadsheet file: {db_file.filename}')
                 await Files.update_file_data_by_id(
                     db_file.id,

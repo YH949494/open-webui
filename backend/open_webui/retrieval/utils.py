@@ -1293,9 +1293,8 @@ async def get_sources_from_items(
                         or file_object.user_id == user.id
                         or await has_access_to_file(item.get('id'), 'read', user)
                     ):
-                        if (
-                            request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-                            and is_spreadsheet_file(file_object.filename)
+                        if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
+                            file_object.filename
                         ):
                             log.info(f'Skipping RAG processing for spreadsheet file: {file_object.filename}')
                             continue
@@ -1330,9 +1329,8 @@ async def get_sources_from_items(
                             or file_object.user_id == user.id
                             or await has_access_to_file(file_id, 'read', user)
                         ):
-                            if (
-                                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-                                and is_spreadsheet_file(file_object.filename)
+                            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
+                                file_object.filename
                             ):
                                 log.info(f'Skipping RAG processing for spreadsheet file: {file_object.filename}')
                                 continue
@@ -1372,9 +1370,8 @@ async def get_sources_from_items(
                         documents = []
                         metadatas = []
                         for file in files:
-                            if (
-                                request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-                                and is_spreadsheet_file(file.filename)
+                            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
+                                file.filename
                             ):
                                 log.info(f'Skipping RAG processing for spreadsheet file: {file.filename}')
                                 continue
