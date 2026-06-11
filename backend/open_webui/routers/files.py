@@ -42,6 +42,7 @@ from open_webui.routers.audio import transcribe
 from open_webui.routers.retrieval import ProcessFileForm, process_file
 from open_webui.storage.provider import Storage
 from open_webui.utils.auth import get_admin_user, get_verified_user
+from open_webui.utils.file_types import get_file_extension, is_spreadsheet_file
 from open_webui.utils.misc import strict_match_mime_type
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -264,9 +265,10 @@ async def upload_file_handler(
         unsanitized_filename = file.filename
         filename = os.path.basename(unsanitized_filename)
 
-        file_extension = os.path.splitext(filename)[1]
-        # Remove the leading dot from the file extension and lowercase it
-        file_extension = file_extension[1:].lower() if file_extension else ''
+        file_extension = get_file_extension(filename)
+        skip_spreadsheet_rag = (
+            process and request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(filename)
+        )
 
         if process and request.app.state.config.ALLOWED_FILE_EXTENSIONS:
             request.app.state.config.ALLOWED_FILE_EXTENSIONS = [
@@ -307,13 +309,29 @@ async def upload_file_handler(
                     'filename': name,
                     'path': file_path,
                     'data': {
-                        **({'status': 'pending'} if process else {}),
+                        **(
+                            {
+                                'status': 'completed',
+                                'raw_data_file': True,
+                                'process_skipped': True,
+                            }
+                            if skip_spreadsheet_rag
+                            else ({'status': 'pending'} if process else {})
+                        ),
                     },
                     'meta': {
                         'name': name,
                         'content_type': (file.content_type if isinstance(file.content_type, str) else None),
                         'size': len(contents),
                         'file_hash': file_hash,
+                        **(
+                            {
+                                'raw_data_file': True,
+                                'process_skipped': True,
+                            }
+                            if skip_spreadsheet_rag
+                            else {}
+                        ),
                         'data': file_metadata,
                     },
                 }
@@ -321,12 +339,30 @@ async def upload_file_handler(
             db=db,
         )
 
+        if skip_spreadsheet_rag:
+            log.info(f'Skipping RAG processing for spreadsheet file: {name}')
+
         if 'channel_id' in file_metadata:
             channel = await Channels.get_channel_by_id_and_user_id(file_metadata['channel_id'], user.id, db=db)
             if channel:
                 await Channels.add_file_to_channel_by_id(channel.id, file_item.id, user.id, db=db)
 
-        if process:
+        if skip_spreadsheet_rag and file_metadata.get('knowledge_id'):
+            try:
+                await Knowledges.add_file_to_knowledge_by_id(
+                    knowledge_id=file_metadata.get('knowledge_id'),
+                    file_id=file_item.id,
+                    user_id=user.id,
+                    directory_id=file_metadata.get('directory_id'),
+                    db=db,
+                )
+            except Exception as e:
+                log.warning(
+                    f'Failed to link skipped spreadsheet file {file_item.id} to knowledge '
+                    f'{file_metadata.get("knowledge_id")}: {e}'
+                )
+
+        if process and not skip_spreadsheet_rag:
             if background_tasks and process_in_background:
                 background_tasks.add_task(
                     process_uploaded_file,
