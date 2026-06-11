@@ -82,6 +82,7 @@ from open_webui.utils.files import (
     get_image_base64_from_url,
     get_image_url_from_base64,
 )
+from open_webui.utils.file_types import is_spreadsheet_file
 from open_webui.utils.filter import (
     get_sorted_filter_ids,
     process_filter_functions,
@@ -1961,8 +1962,38 @@ async def chat_completion_files_handler(
     sources = []
 
     if files := body.get('metadata', {}).get('files', None):
+        rag_files = files
+        if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS:
+            rag_files = []
+            for file_item in files:
+                file_data = file_item.get('file') or {}
+                filename = (
+                    file_item.get('name')
+                    or file_item.get('filename')
+                    or file_data.get('filename')
+                    or file_data.get('meta', {}).get('name')
+                )
+                is_raw_spreadsheet = (
+                    file_item.get('raw_data_file')
+                    or file_item.get('process_skipped')
+                    or file_data.get('data', {}).get('raw_data_file')
+                    or file_data.get('data', {}).get('process_skipped')
+                    or file_data.get('meta', {}).get('raw_data_file')
+                    or file_data.get('meta', {}).get('process_skipped')
+                    or is_spreadsheet_file(filename)
+                )
+
+                if is_raw_spreadsheet:
+                    log.info(f'Skipping RAG processing for spreadsheet file: {filename or file_item.get("id")}')
+                    continue
+
+                rag_files.append(file_item)
+
+        if not rag_files:
+            return body, {'sources': sources}
+
         # Check if all files are in full context mode
-        all_full_context = all(item.get('context') == 'full' for item in files)
+        all_full_context = all(item.get('context') == 'full' for item in rag_files)
 
         queries = []
         if not all_full_context:
@@ -2013,7 +2044,7 @@ async def chat_completion_files_handler(
             # Directly await async get_sources_from_items (no thread needed - fully async now)
             sources = await get_sources_from_items(
                 request=request,
-                items=files,
+                items=rag_files,
                 queries=queries,
                 embedding_function=lambda query, prefix: request.app.state.EMBEDDING_FUNCTION(
                     query, prefix=prefix, user=user

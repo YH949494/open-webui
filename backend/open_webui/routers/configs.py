@@ -507,6 +507,7 @@ class CodeInterpreterConfigForm(BaseModel):
     CODE_EXECUTION_JUPYTER_AUTH_PASSWORD: str | None
     CODE_EXECUTION_JUPYTER_TIMEOUT: int | None
     ENABLE_CODE_INTERPRETER: bool
+    SKIP_RAG_PROCESSING_FOR_SPREADSHEETS: bool = True
     CODE_INTERPRETER_ENGINE: str
     CODE_INTERPRETER_PROMPT_TEMPLATE: str | None
     CODE_INTERPRETER_JUPYTER_URL: str | None
@@ -527,6 +528,7 @@ async def get_code_execution_config(request: Request, user=Depends(get_admin_use
         'CODE_EXECUTION_JUPYTER_AUTH_PASSWORD': request.app.state.config.CODE_EXECUTION_JUPYTER_AUTH_PASSWORD,
         'CODE_EXECUTION_JUPYTER_TIMEOUT': request.app.state.config.CODE_EXECUTION_JUPYTER_TIMEOUT,
         'ENABLE_CODE_INTERPRETER': request.app.state.config.ENABLE_CODE_INTERPRETER,
+        'SKIP_RAG_PROCESSING_FOR_SPREADSHEETS': request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS,
         'CODE_INTERPRETER_ENGINE': request.app.state.config.CODE_INTERPRETER_ENGINE,
         'CODE_INTERPRETER_PROMPT_TEMPLATE': request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE,
         'CODE_INTERPRETER_JUPYTER_URL': request.app.state.config.CODE_INTERPRETER_JUPYTER_URL,
@@ -551,6 +553,9 @@ async def set_code_execution_config(
     request.app.state.config.CODE_EXECUTION_JUPYTER_TIMEOUT = form_data.CODE_EXECUTION_JUPYTER_TIMEOUT
 
     request.app.state.config.ENABLE_CODE_INTERPRETER = form_data.ENABLE_CODE_INTERPRETER
+    request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS = (
+        form_data.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
+    )
     request.app.state.config.CODE_INTERPRETER_ENGINE = form_data.CODE_INTERPRETER_ENGINE
     request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE = form_data.CODE_INTERPRETER_PROMPT_TEMPLATE
 
@@ -571,6 +576,7 @@ async def set_code_execution_config(
         'CODE_EXECUTION_JUPYTER_AUTH_PASSWORD': request.app.state.config.CODE_EXECUTION_JUPYTER_AUTH_PASSWORD,
         'CODE_EXECUTION_JUPYTER_TIMEOUT': request.app.state.config.CODE_EXECUTION_JUPYTER_TIMEOUT,
         'ENABLE_CODE_INTERPRETER': request.app.state.config.ENABLE_CODE_INTERPRETER,
+        'SKIP_RAG_PROCESSING_FOR_SPREADSHEETS': request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS,
         'CODE_INTERPRETER_ENGINE': request.app.state.config.CODE_INTERPRETER_ENGINE,
         'CODE_INTERPRETER_PROMPT_TEMPLATE': request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE,
         'CODE_INTERPRETER_JUPYTER_URL': request.app.state.config.CODE_INTERPRETER_JUPYTER_URL,

@@ -181,6 +181,16 @@
 
 					{#if config.ENABLE_CODE_INTERPRETER}
 						<div class="mb-2.5">
+							<div class=" flex w-full justify-between">
+								<div class=" self-center text-xs font-medium">
+									{$i18n.t('Skip RAG Processing for Spreadsheets')}
+								</div>
+
+								<Switch bind:state={config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS} />
+							</div>
+						</div>
+
+						<div class="mb-2.5">
 							<div class="  flex w-full justify-between">
 								<div class=" self-center text-xs font-medium">
 									{$i18n.t('Code Interpreter Engine')}
