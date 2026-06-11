@@ -1962,7 +1962,6 @@
 	"Skills Public Sharing": "公开分享“技能”",
 	"Skills Sharing": "分享“技能”",
 	"Skip Cache": "跳过缓存",
-	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "跳过缓存并重新执行推理。默认为关闭",
 	"Something went wrong :/": "发生错误",
 	"Sonar": "Sonar",

@@ -46,7 +46,6 @@ from open_webui.retrieval.vector.factory import VECTOR_DB_CLIENT
 from open_webui.retrieval.vector.main import GetResult
 from open_webui.retrieval.web.utils import get_web_loader
 from open_webui.utils.access_control.files import has_access_to_file
-from open_webui.utils.file_types import is_spreadsheet_file
 from open_webui.utils.headers import include_user_info_headers
 from open_webui.utils.misc import get_message_list
 
@@ -1261,15 +1260,6 @@ async def get_sources_from_items(
                     'metadatas': [[{'url': item.get('url'), 'name': item.get('url')}]],
                 }
         elif item.get('type') == 'file':
-            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS:
-                filename = item.get('name') or item.get('filename')
-                file_data = item.get('file') or {}
-                filename = filename or file_data.get('filename') or file_data.get('meta', {}).get('name')
-
-                if is_spreadsheet_file(filename):
-                    log.info(f'Skipping RAG processing for spreadsheet file: {filename or item.get("id")}')
-                    continue
-
             if item.get('context') == 'full' or request.app.state.config.BYPASS_EMBEDDING_AND_RETRIEVAL:
                 if item.get('file', {}).get('data', {}).get('content', ''):
                     # Manual Full Mode Toggle
@@ -1293,12 +1283,6 @@ async def get_sources_from_items(
                         or file_object.user_id == user.id
                         or await has_access_to_file(item.get('id'), 'read', user)
                     ):
-                        if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
-                            file_object.filename
-                        ):
-                            log.info(f'Skipping RAG processing for spreadsheet file: {file_object.filename}')
-                            continue
-
                         query_result = {
                             'documents': [[file_object.data.get('content', '')]],
                             'metadatas': [
@@ -1329,12 +1313,6 @@ async def get_sources_from_items(
                             or file_object.user_id == user.id
                             or await has_access_to_file(file_id, 'read', user)
                         ):
-                            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
-                                file_object.filename
-                            ):
-                                log.info(f'Skipping RAG processing for spreadsheet file: {file_object.filename}')
-                                continue
-
                             if item.get('legacy'):
                                 collection_names.append(f'{file_id}')
                             else:
@@ -1370,12 +1348,6 @@ async def get_sources_from_items(
                         documents = []
                         metadatas = []
                         for file in files:
-                            if request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS and is_spreadsheet_file(
-                                file.filename
-                            ):
-                                log.info(f'Skipping RAG processing for spreadsheet file: {file.filename}')
-                                continue
-
                             documents.append(file.data.get('content', ''))
                             metadatas.append(
                                 {

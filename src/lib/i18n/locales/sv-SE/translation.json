@@ -1968,7 +1968,6 @@
 	"Skills Public Sharing": "Färdigheter Offentlig delning",
 	"Skills Sharing": "Delning av färdigheter",
 	"Skip Cache": "Hoppa över cache",
-	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Hoppa över cacheminnet och kör inferensen igen. Standardvärdet är False.",
 	"Something went wrong :/": "Något gick fel :/",
 	"Sonar": "Sonar",
