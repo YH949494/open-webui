@@ -2884,7 +2884,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     log.exception(e)
 
     # Check if file context extraction is enabled for this model (default True)
-    file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', True)
+    file_context_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('file_context', False)
 
     if file_context_enabled:
         try:
