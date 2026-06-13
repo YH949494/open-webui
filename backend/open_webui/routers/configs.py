@@ -553,9 +553,7 @@ async def set_code_execution_config(
     request.app.state.config.CODE_EXECUTION_JUPYTER_TIMEOUT = form_data.CODE_EXECUTION_JUPYTER_TIMEOUT
 
     request.app.state.config.ENABLE_CODE_INTERPRETER = form_data.ENABLE_CODE_INTERPRETER
-    request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS = (
-        form_data.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
-    )
+    request.app.state.config.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS = form_data.SKIP_RAG_PROCESSING_FOR_SPREADSHEETS
     request.app.state.config.CODE_INTERPRETER_ENGINE = form_data.CODE_INTERPRETER_ENGINE
     request.app.state.config.CODE_INTERPRETER_PROMPT_TEMPLATE = form_data.CODE_INTERPRETER_PROMPT_TEMPLATE
 
