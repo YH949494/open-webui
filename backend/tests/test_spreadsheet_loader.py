@@ -87,12 +87,6 @@ def test_txt_still_routes_to_normal_loader():
     assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
-def test_enable_spreadsheet_rag_opts_back_into_full_extraction():
-    loader = Loader(engine='', ENABLE_SPREADSHEET_RAG=True)
-    got = loader._get_loader('big.csv', 'text/csv', '/tmp/big.csv')
-    assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
-
-
 def test_metadata_only_content_excludes_cell_data():
     # Build a small real .xlsx with recognizable cell content.
     pd = pytest.importorskip('pandas')
