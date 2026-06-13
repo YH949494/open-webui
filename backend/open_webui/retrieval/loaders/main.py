@@ -84,6 +84,104 @@ known_source_ext = [
 ]
 
 
+# Spreadsheet file types. By default these are NOT fully extracted into RAG
+# context: a large workbook expands into hundreds of thousands of cells whose
+# text representation easily exceeds the content-filter maximum payload size
+# ("Request content exceeds maximum size for content filtering"). Instead a
+# small metadata-only document is indexed (see SpreadsheetMetadataOnlyLoader).
+SPREADSHEET_EXTENSIONS = ['xls', 'xlsx', 'csv', 'ods']
+
+SPREADSHEET_MIME_TYPES = [
+    'text/csv',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.oasis.opendocument.spreadsheet',
+]
+
+
+def is_spreadsheet_file(filename: str, file_content_type: str | None) -> bool:
+    """Return True if the file looks like a spreadsheet (by extension or MIME type)."""
+    file_ext = filename.split('.')[-1].lower() if filename and '.' in filename else ''
+    if file_ext in SPREADSHEET_EXTENSIONS:
+        return True
+    if file_content_type and file_content_type.split(';')[0].strip().lower() in SPREADSHEET_MIME_TYPES:
+        return True
+    return False
+
+
+class SpreadsheetMetadataOnlyLoader:
+    """Return a small metadata-only Document for spreadsheet files.
+
+    This deliberately avoids reading full sheet contents. Fully extracting a
+    spreadsheet (e.g. ``df.to_string()`` across every sheet) can produce a text
+    payload large enough to exceed the content-filter maximum size and break
+    chat/RAG requests. Sheet names are read cheaply when possible, but a failure
+    to do so must never block the upload — we always return a Document.
+    """
+
+    def __init__(self, file_path, filename=None, file_content_type=None):
+        self.file_path = file_path
+        self.filename = filename or file_path
+        self.file_content_type = file_content_type
+
+    def _read_sheet_names(self, file_ext: str) -> list[str]:
+        # Only Excel/ODS expose sheet names; reading them via ExcelFile does
+        # not load the cell data, so it stays cheap.
+        if file_ext not in ['xls', 'xlsx', 'ods']:
+            return []
+        try:
+            import pandas as pd
+
+            xls = pd.ExcelFile(self.file_path)
+            try:
+                return list(xls.sheet_names)
+            finally:
+                try:
+                    xls.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            log.warning('Could not read sheet names for spreadsheet %s: %s', self.filename, e)
+            return []
+
+    def load(self) -> list[Document]:
+        file_ext = self.filename.split('.')[-1].lower() if self.filename and '.' in self.filename else ''
+
+        lines = [
+            'Spreadsheet file detected.',
+            f'Filename: {self.filename}',
+        ]
+        if self.file_content_type:
+            lines.append(f'Content type: {self.file_content_type}')
+
+        try:
+            sheet_names = self._read_sheet_names(file_ext)
+        except Exception:
+            # Defensive: never fail the upload because of metadata reading.
+            sheet_names = []
+        if sheet_names:
+            lines.append(f'Sheet names: {", ".join(sheet_names)}')
+
+        lines.append(
+            'Full spreadsheet indexing was skipped to avoid an oversized context / '
+            'content-filter payload (large spreadsheets expand into hundreds of '
+            'thousands of cells).'
+        )
+        lines.append(
+            'To analyze this spreadsheet, use Code Interpreter / tool execution on the '
+            'uploaded file instead of relying on RAG text extraction.'
+        )
+
+        metadata = {'source': self.file_path, 'spreadsheet_metadata_only': True}
+        if self.file_content_type:
+            metadata['content_type'] = self.file_content_type
+        if sheet_names:
+            metadata['sheet_names'] = sheet_names
+
+        return [Document(page_content='\n'.join(lines), metadata=metadata)]
+
+
 class ExcelLoader:
     """Fallback Excel loader using pandas when unstructured is not installed."""
 
@@ -392,6 +490,24 @@ class Loader:
 
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
         file_ext = filename.split('.')[-1].lower()
+
+        # Spreadsheet guard: unless explicitly enabled, route spreadsheet files to a
+        # metadata-only loader before any extraction engine is selected. This prevents
+        # full workbook contents from being expanded into text and injected into
+        # RAG/file/chat context, which would exceed the content-filter maximum payload.
+        if not self.kwargs.get('ENABLE_SPREADSHEET_RAG', False) and is_spreadsheet_file(
+            filename, file_content_type
+        ):
+            log.info(
+                'Skipping RAG processing for spreadsheet file to avoid oversized '
+                'content filter payload: %s',
+                filename,
+            )
+            return SpreadsheetMetadataOnlyLoader(
+                file_path=file_path,
+                filename=filename,
+                file_content_type=file_content_type,
+            )
 
         if (
             self.engine == 'external'

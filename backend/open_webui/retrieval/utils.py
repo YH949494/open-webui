@@ -86,6 +86,7 @@ def build_loader_from_config(request):
     config = request.app.state.config
     return Loader(
         engine=config.CONTENT_EXTRACTION_ENGINE,
+        ENABLE_SPREADSHEET_RAG=config.ENABLE_SPREADSHEET_RAG,
         DATALAB_MARKER_API_KEY=config.DATALAB_MARKER_API_KEY,
         DATALAB_MARKER_API_BASE_URL=config.DATALAB_MARKER_API_BASE_URL,
         DATALAB_MARKER_ADDITIONAL_CONFIG=config.DATALAB_MARKER_ADDITIONAL_CONFIG,
