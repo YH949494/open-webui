@@ -1016,6 +1016,18 @@ CONTENT_EXTRACTION_ENGINE = ConfigVar(
     os.getenv('CONTENT_EXTRACTION_ENGINE', '').lower(),
 )
 
+# When disabled (default), spreadsheet files (xls/xlsx/csv/ods) are NOT fully
+# extracted/indexed into RAG context. Large spreadsheets expand into hundreds of
+# thousands of cells, which produces oversized text payloads that trip the
+# content filter ("Request content exceeds maximum size for content filtering").
+# Instead, a small metadata-only document is indexed and users are directed to
+# analyze the spreadsheet with Code Interpreter / tool execution.
+ENABLE_SPREADSHEET_RAG = ConfigVar(
+    'ENABLE_SPREADSHEET_RAG',
+    'rag.enable_spreadsheet_rag',
+    os.getenv('ENABLE_SPREADSHEET_RAG', 'False').lower() == 'true',
+)
+
 DATALAB_MARKER_API_KEY = ConfigVar(
     'DATALAB_MARKER_API_KEY',
     'rag.datalab_marker_api_key',
