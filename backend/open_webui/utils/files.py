@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import io
+import logging
 import mimetypes
 import re
 from pathlib import Path
@@ -29,6 +30,8 @@ from open_webui.routers.images import (
 )
 from open_webui.storage.provider import Storage
 from open_webui.utils.session_pool import get_session
+
+log = logging.getLogger(__name__)
 
 BASE64_IMAGE_URL_PREFIX = re.compile(r'data:image/\w+;base64,', re.IGNORECASE)
 MARKDOWN_IMAGE_URL_PATTERN = re.compile(r'!\[(.*?)\]\((.+?)\)', re.IGNORECASE)
@@ -177,6 +180,67 @@ async def get_file_url_from_base64(request, base64_file_string, metadata, user):
     elif 'data:audio/wav;base64' in base64_file_string:
         return await get_audio_url_from_base64(request, base64_file_string, metadata, user)
     return None
+
+
+async def resolve_uploaded_file_path(file_id: str, user=None) -> Optional[str]:
+    """Resolve an uploaded file's id to a readable, local server-side path.
+
+    Tools (e.g. an Excel/spreadsheet analyzer) receive only a ``file_id`` and
+    the stored ``file.path``, which for cloud providers is a storage URI
+    (``s3://``, ``gs://``, ``https://<account>...``) rather than something that
+    can be opened with ``open()``/``openpyxl``/``pandas``. This helper turns the
+    id into a path that exists on the local filesystem:
+
+    - Local storage: ``Storage.get_file`` returns the absolute path as-is. On a
+      Fly.io deployment this lives on the mounted persistent volume
+      (``UPLOAD_DIR``), so the same code path works there too.
+    - Cloud storage (S3/GCS/Azure): ``Storage.get_file`` downloads the object
+      into ``UPLOAD_DIR`` and returns the local cache path.
+
+    Access is gated the same way as :func:`get_image_base64_from_file_id` so a
+    caller cannot resolve another user's file by id.
+
+    Returns the local path string, or ``None`` if the file cannot be found,
+    accessed, or resolved.
+    """
+    if not file_id:
+        return None
+
+    file = await Files.get_file_by_id(file_id)
+    if not file:
+        log.warning(f'resolve_uploaded_file_path: no file record for id={file_id}')
+        return None
+
+    if user is None:
+        log.warning(f'resolve_uploaded_file_path: no user context for file id={file_id}')
+        return None
+    if file.user_id != user.id and user.role != 'admin' and not await has_access_to_file(file.id, 'read', user):
+        log.warning(f'resolve_uploaded_file_path: access denied for user={user.id} file id={file_id}')
+        return None
+
+    if not file.path:
+        log.warning(
+            f'resolve_uploaded_file_path: file id={file_id} ({file.filename}) has no stored path; '
+            f'available meta keys={sorted((file.meta or {}).keys())}'
+        )
+        return None
+
+    try:
+        local_path = await asyncio.to_thread(Storage.get_file, file.path)
+    except Exception as e:
+        log.warning(f'resolve_uploaded_file_path: failed to fetch file id={file_id} from storage: {e}')
+        return None
+
+    if not local_path or not Path(local_path).is_file():
+        log.warning(
+            f'resolve_uploaded_file_path: resolved path is not a readable file for id={file_id} '
+            f'(stored path={file.path!r}, resolved={local_path!r})'
+        )
+        return None
+
+    # Server-side debug log only — never returned to the end user.
+    log.info(f'resolve_uploaded_file_path: resolved file id={file_id} ({file.filename}) -> {local_path}')
+    return local_path
 
 
 async def get_image_base64_from_file_id(id: str, user=None) -> Optional[str]:
