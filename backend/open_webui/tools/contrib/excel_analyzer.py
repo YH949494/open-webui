@@ -275,9 +275,7 @@ class Tools:
                     'column_names': col_names,
                 }
                 if include_insights:
-                    sheet_info['insights'] = Tools._structural_insights(
-                        row_count, col_count, col_names
-                    )
+                    sheet_info['insights'] = Tools._structural_insights(row_count, col_count, col_names)
                 sheets.append(sheet_info)
             return {'filename': display_name, 'sheets': sheets}
         finally:
@@ -294,11 +292,7 @@ class Tools:
             for sh in wb.sheets():
                 nrows = int(sh.nrows)
                 ncols = int(sh.ncols)
-                col_names = (
-                    [str(sh.cell_value(0, c)) for c in range(min(ncols, _MAX_COL_NAMES))]
-                    if nrows > 0
-                    else []
-                )
+                col_names = [str(sh.cell_value(0, c)) for c in range(min(ncols, _MAX_COL_NAMES))] if nrows > 0 else []
                 sheet_info: dict = {
                     'sheet_name': sh.name,
                     'rows': nrows,
