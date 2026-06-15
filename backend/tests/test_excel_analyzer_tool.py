@@ -136,6 +136,74 @@ async def test_tool_requires_user_context():
     assert 'User context not available' in out['error']
 
 
+@pytest.mark.asyncio
+async def test_tool_passes_attachment_path_to_resolver(tmp_path):
+    """attachment_path from item['file']['path'] is forwarded to the resolver."""
+    xlsx = tmp_path / 'report.xlsx'
+    _make_xlsx(xlsx)
+
+    tool = Tools()
+    user = types.SimpleNamespace(id='u1', role='user')
+
+    storage_path = '/uploads/uuid_report.xlsx'
+    __files__ = [
+        {
+            'type': 'file',
+            'id': 'file-2',
+            'name': 'report.xlsx',
+            'file': {
+                'filename': 'report.xlsx',
+                'path': storage_path,
+                'meta': {'name': 'report.xlsx'},
+            },
+        }
+    ]
+
+    stub = types.ModuleType('open_webui.utils.files')
+    resolver_mock = AsyncMock(return_value=str(xlsx))
+    stub.resolve_uploaded_file_path = resolver_mock
+
+    with (
+        patch.object(tool, '_resolve_user', new=AsyncMock(return_value=user)),
+        patch.dict(sys.modules, {'open_webui.utils.files': stub}),
+    ):
+        await tool.inspect_uploaded_spreadsheet(__files__=__files__, __user__={'id': 'u1'})
+
+    resolver_mock.assert_awaited_once()
+    _, kwargs = resolver_mock.call_args
+    assert kwargs.get('attachment_path') == storage_path
+
+
+@pytest.mark.asyncio
+async def test_tool_works_without_attachment_path():
+    """When item['file'] has no path, attachment_path is None (DB fallback path)."""
+    tool = Tools()
+    user = types.SimpleNamespace(id='u1', role='user')
+
+    __files__ = [
+        {
+            'type': 'file',
+            'id': 'file-3',
+            'name': 'data.xlsx',
+            'file': {'filename': 'data.xlsx', 'meta': {}},
+        }
+    ]
+
+    stub = types.ModuleType('open_webui.utils.files')
+    resolver_mock = AsyncMock(return_value=None)
+    stub.resolve_uploaded_file_path = resolver_mock
+
+    with (
+        patch.object(tool, '_resolve_user', new=AsyncMock(return_value=user)),
+        patch.dict(sys.modules, {'open_webui.utils.files': stub}),
+    ):
+        await tool.inspect_uploaded_spreadsheet(__files__=__files__, __user__={'id': 'u1'})
+
+    resolver_mock.assert_awaited_once()
+    _, kwargs = resolver_mock.call_args
+    assert kwargs.get('attachment_path') is None
+
+
 # --- resolver source contract (avoids heavy import) -----------------------
 
 
@@ -145,10 +213,12 @@ def test_resolver_source_contract():
 
     body = src[src.index('async def resolve_uploaded_file_path') : src.index('async def get_image_base64_from_file_id')]
 
+    # Accepts an optional attachment_path to use before hitting the DB.
+    assert 'attachment_path' in body
     # Resolves the storage URI to a local path via the storage provider
     # (keeps local + cloud/Fly volume compatible).
     assert 'Storage.get_file' in body
-    # Enforces access control before reading another user's file.
+    # Enforces access control before reading another user's file (DB fallback).
     assert 'has_access_to_file' in body
     # Logs the resolved path (server-side debug visibility).
     assert 'resolved file id=' in body

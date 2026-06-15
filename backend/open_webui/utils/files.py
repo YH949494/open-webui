@@ -182,7 +182,23 @@ async def get_file_url_from_base64(request, base64_file_string, metadata, user):
     return None
 
 
-async def resolve_uploaded_file_path(file_id: str, user=None) -> Optional[str]:
+async def _try_storage_get(storage_path: str, file_id: str) -> str | None:
+    """Fetch a file via the storage provider and return its local path if readable."""
+    try:
+        local_path = await asyncio.to_thread(Storage.get_file, storage_path)
+    except Exception as exc:
+        log.warning(f'resolve_uploaded_file_path: storage fetch failed for file id={file_id}: {exc}')
+        return None
+    if not local_path or not Path(local_path).is_file():
+        return None
+    return local_path
+
+
+async def resolve_uploaded_file_path(
+    file_id: str,
+    user=None,
+    attachment_path: str | None = None,
+) -> Optional[str]:
     """Resolve an uploaded file's id to a readable, local server-side path.
 
     Tools (e.g. an Excel/spreadsheet analyzer) receive only a ``file_id`` and
@@ -197,8 +213,16 @@ async def resolve_uploaded_file_path(file_id: str, user=None) -> Optional[str]:
     - Cloud storage (S3/GCS/Azure): ``Storage.get_file`` downloads the object
       into ``UPLOAD_DIR`` and returns the local cache path.
 
+    When the caller already has the file's storage path (e.g. from the
+    ``__files__`` attachment dict populated by the frontend), pass it as
+    ``attachment_path`` to skip the database round-trip.  The DB is used as a
+    fallback for legacy records or non-frontend callers where the path is not
+    pre-known.
+
     Access is gated the same way as :func:`get_image_base64_from_file_id` so a
-    caller cannot resolve another user's file by id.
+    caller cannot resolve another user's file by id (enforced in the DB fallback
+    path; attachment-path callers come from the authenticated chat request where
+    access was already validated upstream).
 
     Returns the local path string, or ``None`` if the file cannot be found,
     accessed, or resolved.
@@ -206,6 +230,18 @@ async def resolve_uploaded_file_path(file_id: str, user=None) -> Optional[str]:
     if not file_id:
         return None
 
+    # --- fast path: caller already knows the storage path ---
+    if attachment_path:
+        local_path = await _try_storage_get(attachment_path, file_id)
+        if local_path:
+            log.info(f'resolve_uploaded_file_path: resolved file id={file_id} -> {local_path}')
+            return local_path
+        log.debug(
+            f'resolve_uploaded_file_path: attachment path did not resolve for file id={file_id} '
+            f'(attachment_path={attachment_path!r}); falling back to DB'
+        )
+
+    # --- DB fallback: for legacy records or non-frontend calls ---
     file = await Files.get_file_by_id(file_id)
     if not file:
         log.warning(f'resolve_uploaded_file_path: no file record for id={file_id}')
@@ -225,16 +261,11 @@ async def resolve_uploaded_file_path(file_id: str, user=None) -> Optional[str]:
         )
         return None
 
-    try:
-        local_path = await asyncio.to_thread(Storage.get_file, file.path)
-    except Exception as e:
-        log.warning(f'resolve_uploaded_file_path: failed to fetch file id={file_id} from storage: {e}')
-        return None
-
-    if not local_path or not Path(local_path).is_file():
+    local_path = await _try_storage_get(file.path, file_id)
+    if not local_path:
         log.warning(
             f'resolve_uploaded_file_path: resolved path is not a readable file for id={file_id} '
-            f'(stored path={file.path!r}, resolved={local_path!r})'
+            f'(stored path={file.path!r})'
         )
         return None
 
