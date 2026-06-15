@@ -50,7 +50,7 @@ def test_analyze_returns_sheet_names_and_row_counts(tmp_path):
     result = Tools._analyze(str(xlsx), 'User Intelligence Master.xlsx')
 
     assert result['filename'] == 'User Intelligence Master.xlsx'
-    sheets = {s['name']: s['row_count'] for s in result['sheets']}
+    sheets = {s['sheet_name']: s['rows'] for s in result['sheets']}
     assert sheets == {'People': 3, 'Orders': 6}
 
 
@@ -96,7 +96,7 @@ async def test_tool_inspects_attached_spreadsheet(tmp_path):
     with patch.object(tool, '_resolve_user', new=AsyncMock(return_value=user)), _stub_resolver(str(xlsx)):
         out = json.loads(await tool.inspect_uploaded_spreadsheet(__files__=__files__, __user__={'id': 'u1'}))
 
-    sheets = {s['name']: s['row_count'] for s in out['files'][0]['sheets']}
+    sheets = {s['sheet_name']: s['rows'] for s in out['files'][0]['sheets']}
     assert sheets == {'People': 3, 'Orders': 6}
 
 

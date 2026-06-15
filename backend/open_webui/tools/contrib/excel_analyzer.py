@@ -1,7 +1,7 @@
 """
 title: Excel Analyzer
 author: open-webui
-version: 1.0.0
+version: 1.1.0
 required_open_webui_version: 0.5.0
 requirements: openpyxl
 description: >
@@ -56,6 +56,10 @@ log = logging.getLogger(__name__)
 
 # Extensions this tool knows how to open directly.
 _SPREADSHEET_EXTENSIONS = {'.xlsx', '.xlsm', '.xltx', '.xltm', '.xls', '.csv'}
+_MAX_COL_NAMES = 20
+_MAX_INSIGHTS = 10
+_MAX_SAMPLE_ROWS = 5000
+_OUTPUT_SIZE_LIMIT = 12000
 
 
 class Tools:
@@ -71,6 +75,13 @@ class Tools:
                 'Leave false in production so sensitive paths stay in the server logs only.'
             ),
         )
+        lightweight_mode: bool = Field(
+            default=True,
+            description=(
+                'When true (default), return only compact metadata: sheet names, row/column counts, '
+                'and up to 20 column names. No data previews or full dataframe reads.'
+            ),
+        )
 
     def __init__(self):
         self.valves = self.Valves()
@@ -82,19 +93,20 @@ class Tools:
     async def inspect_uploaded_spreadsheet(
         self,
         file_id: str = '',
+        include_insights: bool = False,
         __files__: list | None = None,
         __user__: dict | None = None,
     ) -> str:
         """
-        Inspect an uploaded spreadsheet (.xlsx/.xlsm/.xls/.csv) and return its
-        sheet names and the row count of each sheet. Operates on files the user
-        has attached to the current chat — call it whenever the user asks to
-        analyze, inspect, or summarize an uploaded spreadsheet/Excel file.
+        Inspect an uploaded spreadsheet (.xlsx/.xlsm/.xls/.csv) and return sheet
+        names, row/column counts, and up to 20 column headers per sheet.
+        Optionally include up to 10 structural insights. Output is always compact
+        JSON capped at 12 000 characters — no dataframe previews, no narrative.
 
         :param file_id: Optional id of a specific attached file. If omitted, the most recent spreadsheet is used.
-        :return: JSON with each spreadsheet's sheet names and row counts, or a diagnostic if no file resolved.
+        :param include_insights: If true, include up to 10 structural findings per sheet.
+        :return: Compact JSON with sheet metadata.
         """
-        # Resolve the user object once (access control needs id + role).
         user = await self._resolve_user(__user__)
         if user is None:
             return json.dumps({'error': 'User context not available; cannot access uploaded files.'})
@@ -116,24 +128,21 @@ class Tools:
             fid = item.get('id')
             fname = item.get('name') or item.get('filename') or (item.get('file') or {}).get('filename')
             # Pass the storage path from the attachment dict so the resolver can
-            # use it directly without a DB round-trip.  For legacy/pre-migration
-            # file records where the DB path column is NULL this is the only
-            # source of truth available.
+            # use it directly without a DB round-trip.
             attachment_path = (item.get('file') or {}).get('path') or None
 
             local_path = await resolve_uploaded_file_path(fid, user=user, attachment_path=attachment_path)
             if not local_path:
-                # Diagnostic: surface what we *did* receive so the failure is debuggable.
                 results.append(self._missing_path_diagnostic(item, fid, fname))
                 continue
 
             log.info(f'inspect_uploaded_spreadsheet: analyzing file_id={fid} at {local_path}')
-            analysis = self._analyze(local_path, fname)
+            analysis = self._analyze(local_path, fname, include_insights=include_insights)
             if self.valves.expose_paths_in_output:
                 analysis['resolved_path'] = local_path
             results.append(analysis)
 
-        return json.dumps({'files': results}, ensure_ascii=False)
+        return self._guard_output({'files': results})
 
     # --- helpers -----------------------------------------------------------
 
@@ -150,24 +159,16 @@ class Tools:
             return None
 
     def _collect_candidates(self, __files__: list | None, file_id: str) -> list:
-        """Pick which attached file(s) to inspect.
-
-        Prefers an explicitly requested ``file_id``; otherwise returns all
-        attached spreadsheet files (most-recent first, matching how Open WebUI
-        orders attachments).
-        """
+        """Pick which attached file(s) to inspect."""
         files = [f for f in (__files__ or []) if isinstance(f, dict)]
 
         if file_id:
             for f in files:
                 if f.get('id') == file_id:
                     return [f]
-            # Requested id wasn't in __files__ — still try to resolve it directly.
             return [{'id': file_id}]
 
         spreadsheets = [f for f in files if self._is_spreadsheet(f)]
-        # Fall back to all files if extension detection found nothing (e.g. a
-        # spreadsheet uploaded with an unusual/missing content type).
         return spreadsheets or files
 
     @staticmethod
@@ -192,11 +193,6 @@ class Tools:
 
     @staticmethod
     def _missing_path_diagnostic(item: dict, fid, fname) -> dict:
-        """Build a debuggable diagnostic when a file path cannot be resolved.
-
-        Per requirements this includes the file_id, filename, and the available
-        metadata keys — but NOT any resolved absolute path.
-        """
         file_meta = (item.get('file') or {}).get('meta') or {}
         return {
             'error': 'file not found; the file path was not accessible to the tool',
@@ -207,44 +203,174 @@ class Tools:
         }
 
     @staticmethod
-    def _analyze(local_path: str, fname: str | None) -> dict:
-        """Read sheet names and row counts using openpyxl (xlsx) / pandas (xls/csv)."""
+    def _guard_output(payload: dict) -> str:
+        """Ensure output stays under _OUTPUT_SIZE_LIMIT characters with valid JSON."""
+        raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        if len(raw) <= _OUTPUT_SIZE_LIMIT:
+            return raw
+
+        # Pass 1: drop insights
+        for f in payload.get('files', []):
+            for s in f.get('sheets', []):
+                s.pop('insights', None)
+        payload['truncated'] = True
+        raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        if len(raw) <= _OUTPUT_SIZE_LIMIT:
+            return raw
+
+        # Pass 2: drop column_names
+        for f in payload.get('files', []):
+            for s in f.get('sheets', []):
+                s.pop('column_names', None)
+        raw = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        if len(raw) <= _OUTPUT_SIZE_LIMIT:
+            return raw
+
+        # Pass 3: cap each file to 10 sheets
+        for f in payload.get('files', []):
+            if len(f.get('sheets', [])) > 10:
+                f['sheets'] = f['sheets'][:10]
+                f['sheets_truncated'] = True
+        return json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+
+    @staticmethod
+    def _analyze(local_path: str, fname: str | None, include_insights: bool = False) -> dict:
+        """Dispatch to the correct reader based on file extension."""
         ext = os.path.splitext((fname or local_path).lower())[1]
         display_name = fname or os.path.basename(local_path)
 
         try:
             if ext == '.csv':
-                import pandas as pd
-
-                df = pd.read_csv(local_path)
-                return {
-                    'filename': display_name,
-                    'sheets': [{'name': 'Sheet1', 'row_count': int(len(df))}],
-                }
-
+                return Tools._analyze_csv(local_path, display_name, include_insights)
             if ext == '.xls':
-                # Legacy binary format — openpyxl cannot read it; use pandas+xlrd.
-                import pandas as pd
-
-                sheets = pd.read_excel(local_path, sheet_name=None, header=None)
-                return {
-                    'filename': display_name,
-                    'sheets': [{'name': name, 'row_count': int(len(df))} for name, df in sheets.items()],
-                }
-
-            # Default: modern Excel via openpyxl in read-only (streaming) mode.
-            import openpyxl
-
-            wb = openpyxl.load_workbook(local_path, read_only=True, data_only=True)
-            try:
-                sheets = []
-                for ws in wb.worksheets:
-                    # max_row is reliable for real .xlsx files; guard against None.
-                    row_count = ws.max_row if ws.max_row is not None else 0
-                    sheets.append({'name': ws.title, 'row_count': int(row_count)})
-                return {'filename': display_name, 'sheets': sheets}
-            finally:
-                wb.close()
+                return Tools._analyze_xls(local_path, display_name, include_insights)
+            # Default: xlsx / xlsm / xltx / xltm via openpyxl streaming read.
+            return Tools._analyze_xlsx(local_path, display_name, include_insights)
         except Exception as e:
             log.exception(f'inspect_uploaded_spreadsheet: failed to read {local_path}: {e}')
             return {'filename': display_name, 'error': f'Failed to read spreadsheet: {e}'}
+
+    @staticmethod
+    def _analyze_xlsx(local_path: str, display_name: str, include_insights: bool) -> dict:
+        """Read xlsx metadata via openpyxl without loading cell data into memory."""
+        import openpyxl
+
+        wb = openpyxl.load_workbook(local_path, read_only=True, data_only=True)
+        try:
+            sheets = []
+            for ws in wb.worksheets:
+                # max_row/max_column from the workbook manifest — no full read.
+                row_count = int(ws.max_row) if ws.max_row is not None else 0
+                col_count = int(ws.max_column) if ws.max_column is not None else 0
+
+                col_names: list[str] = []
+                for row in ws.iter_rows(min_row=1, max_row=1, values_only=True):
+                    col_names = [str(c) if c is not None else '' for c in row[:_MAX_COL_NAMES]]
+                    break
+
+                sheet_info: dict = {
+                    'sheet_name': ws.title,
+                    'rows': row_count,
+                    'columns': col_count,
+                    'column_names': col_names,
+                }
+                if include_insights:
+                    sheet_info['insights'] = Tools._structural_insights(
+                        row_count, col_count, col_names
+                    )
+                sheets.append(sheet_info)
+            return {'filename': display_name, 'sheets': sheets}
+        finally:
+            wb.close()
+
+    @staticmethod
+    def _analyze_xls(local_path: str, display_name: str, include_insights: bool) -> dict:
+        """Read legacy .xls metadata via xlrd (no pandas full-sheet load)."""
+        try:
+            import xlrd
+
+            wb = xlrd.open_workbook(local_path)
+            sheets = []
+            for sh in wb.sheets():
+                nrows = int(sh.nrows)
+                ncols = int(sh.ncols)
+                col_names = (
+                    [str(sh.cell_value(0, c)) for c in range(min(ncols, _MAX_COL_NAMES))]
+                    if nrows > 0
+                    else []
+                )
+                sheet_info: dict = {
+                    'sheet_name': sh.name,
+                    'rows': nrows,
+                    'columns': ncols,
+                    'column_names': col_names,
+                }
+                if include_insights:
+                    sheet_info['insights'] = Tools._structural_insights(nrows, ncols, col_names)
+                sheets.append(sheet_info)
+            return {'filename': display_name, 'sheets': sheets}
+        except ImportError:
+            # xlrd not installed — fall back to pandas header-only read.
+            import pandas as pd
+
+            header_frames = pd.read_excel(local_path, sheet_name=None, header=0, nrows=0)
+            sheets = []
+            for name, df in header_frames.items():
+                col_names = [str(c) for c in df.columns[:_MAX_COL_NAMES]]
+                sheet_info = {
+                    'sheet_name': name,
+                    'rows': None,
+                    'columns': len(df.columns),
+                    'column_names': col_names,
+                    'note': 'row count unavailable without xlrd',
+                }
+                if include_insights:
+                    sheet_info['insights'] = Tools._structural_insights(None, len(df.columns), col_names)
+                sheets.append(sheet_info)
+            return {'filename': display_name, 'sheets': sheets}
+
+    @staticmethod
+    def _analyze_csv(local_path: str, display_name: str, include_insights: bool) -> dict:
+        """Count CSV rows by line scan and read only the header with pandas."""
+        import pandas as pd
+
+        row_count = 0
+        try:
+            with open(local_path, 'rb') as fh:
+                row_count = max(0, sum(1 for _ in fh) - 1)  # subtract header line
+        except Exception:
+            pass
+
+        header_df = pd.read_csv(local_path, nrows=0)
+        col_count = len(header_df.columns)
+        col_names = [str(c) for c in header_df.columns[:_MAX_COL_NAMES]]
+
+        sheet_info: dict = {
+            'sheet_name': 'Sheet1',
+            'rows': row_count,
+            'columns': col_count,
+            'column_names': col_names,
+        }
+        if include_insights:
+            sheet_info['insights'] = Tools._structural_insights(row_count, col_count, col_names)
+        return {'filename': display_name, 'sheets': [sheet_info]}
+
+    @staticmethod
+    def _structural_insights(rows, columns, col_names: list[str]) -> list[str]:
+        """Return up to _MAX_INSIGHTS compact structural observations."""
+        findings: list[str] = []
+        if rows is not None:
+            findings.append(f'{rows} data rows, {columns} columns')
+            if rows > _MAX_SAMPLE_ROWS:
+                findings.append(f'Large sheet (>{_MAX_SAMPLE_ROWS} rows); sample for analysis')
+            elif rows == 0:
+                findings.append('Sheet appears empty')
+        else:
+            findings.append(f'{columns} columns (row count not available)')
+        if col_names:
+            extra = columns - len(col_names) if columns > len(col_names) else 0
+            summary = ', '.join(col_names)
+            if extra:
+                summary += f' … +{extra} more'
+            findings.append(f'Columns: {summary}')
+        return findings[:_MAX_INSIGHTS]
