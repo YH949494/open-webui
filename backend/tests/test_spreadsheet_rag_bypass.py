@@ -47,3 +47,11 @@ def test_spreadsheet_bypass_guards_are_present():
     files_source = changed_files[0].read_text()
     assert "'raw_data_file': True" in files_source
     assert "'process_skipped': True" in files_source
+
+
+def test_file_model_response_serializes_path():
+    files_model = REPO_ROOT / 'backend' / 'open_webui' / 'models' / 'files.py'
+    source = files_model.read_text()
+
+    response_model = source[source.index('class FileModelResponse') : source.index('class FileMetadataResponse')]
+    assert 'path: str | None = None' in response_model

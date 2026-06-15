@@ -80,6 +80,7 @@ class FileModelResponse(BaseModel):
     hash: str | None = None
 
     filename: str
+    path: str | None = None
     data: dict | None = None
     meta: FileMeta | None = None
 
