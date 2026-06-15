@@ -115,8 +115,13 @@ class Tools:
         for item in candidates[: max(1, self.valves.max_files)]:
             fid = item.get('id')
             fname = item.get('name') or item.get('filename') or (item.get('file') or {}).get('filename')
+            # Pass the storage path from the attachment dict so the resolver can
+            # use it directly without a DB round-trip.  For legacy/pre-migration
+            # file records where the DB path column is NULL this is the only
+            # source of truth available.
+            attachment_path = (item.get('file') or {}).get('path') or None
 
-            local_path = await resolve_uploaded_file_path(fid, user=user)
+            local_path = await resolve_uploaded_file_path(fid, user=user, attachment_path=attachment_path)
             if not local_path:
                 # Diagnostic: surface what we *did* receive so the failure is debuggable.
                 results.append(self._missing_path_diagnostic(item, fid, fname))
