@@ -460,12 +460,18 @@ async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str 
     }
     yield f'event: message_start\ndata: {json.dumps(message_start)}\n\n'.encode()
 
+    sse_buffer = ''
+
     try:
         async for chunk in openai_stream_generator:
             if isinstance(chunk, bytes):
                 chunk = chunk.decode('utf-8', errors='ignore')
 
-            for line in chunk.strip().split('\n'):
+            sse_buffer += chunk
+            lines = sse_buffer.split('\n')
+            sse_buffer = lines.pop()  # keep incomplete SSE line for next chunk
+
+            for line in lines:
                 line = line.strip()
 
                 if not line or not line.startswith('data:'):
