@@ -585,6 +585,23 @@ async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str 
                     }
                     stop_reason = stop_reason_map.get(finish_reason, 'end_turn')
 
+        # Flush any incomplete SSE line left in the buffer after the stream ends
+        if sse_buffer.strip():
+            for line in sse_buffer.strip().split('\n'):
+                line = line.strip()
+                if not line or not line.startswith('data:'):
+                    continue
+                data_str = line[5:].strip()
+                if data_str in ('[DONE]', '{}'):
+                    continue
+                try:
+                    data = json.loads(data_str)
+                except (json.JSONDecodeError, TypeError):
+                    continue
+                if data.get('usage'):
+                    input_tokens = data['usage'].get('prompt_tokens', input_tokens)
+                    output_tokens = data['usage'].get('completion_tokens', output_tokens)
+
     except Exception as e:
         log.error(f'Error in Anthropic stream conversion: {e}')
 
