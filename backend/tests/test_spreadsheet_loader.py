@@ -51,9 +51,20 @@ def test_is_spreadsheet_file_by_mime_type():
     assert not is_spreadsheet_file('blob', 'application/pdf')
 
 
-def test_xlsx_routes_to_excel_loader():
-    # xlsx should now use ExcelLoader (or UnstructuredExcelLoader), not metadata-only
+def test_xlsx_routes_to_metadata_only_by_default():
+    # Without ENABLE_SPREADSHEET_RAG, xlsx should use metadata-only loader (safe default)
     loader = Loader(engine='')
+    got = loader._get_loader(
+        'big.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '/tmp/big.xlsx',
+    )
+    assert isinstance(got, SpreadsheetMetadataOnlyLoader)
+
+
+def test_xlsx_routes_to_excel_loader_when_enabled():
+    # With ENABLE_SPREADSHEET_RAG=True, xlsx should use real content loader
+    loader = Loader(engine='', ENABLE_SPREADSHEET_RAG=True)
     got = loader._get_loader(
         'big.xlsx',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -62,21 +73,32 @@ def test_xlsx_routes_to_excel_loader():
     assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
-def test_csv_routes_to_normal_loader():
-    # CSV should use the standard CSVLoader, not metadata-only
+def test_csv_routes_to_metadata_only_by_default():
+    # CSV should also use metadata-only by default
     loader = Loader(engine='')
     got = loader._get_loader('big.csv', 'text/csv', '/tmp/big.csv')
+    assert isinstance(got, SpreadsheetMetadataOnlyLoader)
+
+
+def test_xlsx_with_tika_engine_and_flag_enabled():
+    # With tika engine + ENABLE_SPREADSHEET_RAG=True, xlsx should use TikaLoader
+    loader = Loader(
+        engine='tika',
+        TIKA_SERVER_URL='http://tika:9998',
+        ENABLE_SPREADSHEET_RAG=True,
+    )
+    got = loader._get_loader('big.xlsx', None, '/tmp/big.xlsx')
     assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
-def test_xlsx_with_tika_engine():
-    # With tika engine configured, xlsx should use TikaLoader (not metadata-only)
+def test_spreadsheet_guard_runs_before_extraction_engines():
+    # Even with tika configured, spreadsheets use metadata-only by default
     loader = Loader(
         engine='tika',
         TIKA_SERVER_URL='http://tika:9998',
     )
     got = loader._get_loader('big.xlsx', None, '/tmp/big.xlsx')
-    assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
+    assert isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
 def test_pdf_still_routes_to_normal_loader():

@@ -491,6 +491,20 @@ class Loader:
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
         file_ext = filename.split('.')[-1].lower()
 
+        # Route spreadsheets to metadata-only unless ENABLE_SPREADSHEET_RAG is on.
+        # Large workbooks expand into massive text payloads that exceed content-filter
+        # limits; the metadata-only path keeps uploads safe by default.
+        if not self.kwargs.get('ENABLE_SPREADSHEET_RAG', False) and is_spreadsheet_file(filename, file_content_type):
+            log.info(
+                'Skipping RAG processing for spreadsheet file (set ENABLE_SPREADSHEET_RAG=true to enable): %s',
+                filename,
+            )
+            return SpreadsheetMetadataOnlyLoader(
+                file_path=file_path,
+                filename=filename,
+                file_content_type=file_content_type,
+            )
+
         if (
             self.engine == 'external'
             and self.kwargs.get('EXTERNAL_DOCUMENT_LOADER_URL')
