@@ -524,7 +524,7 @@ ENABLE_CODE_INTERPRETER = ConfigVar(
 SKIP_RAG_PROCESSING_FOR_SPREADSHEETS = ConfigVar(
     'SKIP_RAG_PROCESSING_FOR_SPREADSHEETS',
     'code_interpreter.skip_rag_processing_for_spreadsheets',
-    os.getenv('SKIP_RAG_PROCESSING_FOR_SPREADSHEETS', 'True').lower() == 'true',
+    os.getenv('SKIP_RAG_PROCESSING_FOR_SPREADSHEETS', 'False').lower() == 'true',
 )
 
 ENABLE_MEMORIES = ConfigVar(
