@@ -148,17 +148,22 @@ export const createPicker = () => {
 
 							let downloadUrl;
 							let exportFormat;
+							let fileExtension = '';
 
 							if (mimeType.includes('google-apps')) {
 								// Handle Google Workspace files
 								if (mimeType.includes('document')) {
 									exportFormat = 'text/plain';
+									fileExtension = '.txt';
 								} else if (mimeType.includes('spreadsheet')) {
 									exportFormat = 'text/csv';
+									fileExtension = '.csv';
 								} else if (mimeType.includes('presentation')) {
 									exportFormat = 'text/plain';
+									fileExtension = '.txt';
 								} else {
 									exportFormat = 'application/pdf';
+									fileExtension = '.pdf';
 								}
 								downloadUrl = `https://www.googleapis.com/drive/v3/files/${fileId}/export?mimeType=${encodeURIComponent(exportFormat)}`;
 							} else {
@@ -184,9 +189,14 @@ export const createPicker = () => {
 							}
 
 							const blob = await response.blob();
+							// Append extension if the filename doesn't already have one,
+							// so the backend can identify the file type for content extraction.
+							const hasExtension =
+								fileName.includes('.') && fileName.lastIndexOf('.') > fileName.lastIndexOf('/');
+							const resolvedName = hasExtension ? fileName : fileName + fileExtension;
 							const result = {
 								id: fileId,
-								name: fileName,
+								name: resolvedName,
 								url: downloadUrl,
 								blob: blob,
 								headers: {
