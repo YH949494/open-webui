@@ -955,6 +955,91 @@ def get_source_context(sources: list, source_ids: dict = None, include_content: 
     return context_string
 
 
+def is_spreadsheet_attachment(file_item: dict) -> bool:
+    if not isinstance(file_item, dict):
+        return False
+    file_data = file_item.get('file') or {}
+    name = (
+        file_item.get('name')
+        or file_item.get('filename')
+        or file_data.get('filename')
+        or file_data.get('meta', {}).get('name')
+        or ''
+    )
+    return is_spreadsheet_file(name)
+
+
+async def build_spreadsheet_analysis_sources(files: list | None, user) -> list:
+    """
+    Auto-run the bundled spreadsheet analyzer when spreadsheet RAG is skipped.
+
+    The analyzer returns compact workbook metadata, not full cell dumps, so it is
+    safe to inject as prompt context and avoids requiring users to manually turn
+    on an Excel tool for basic file-aware answers.
+    """
+    spreadsheet_files = [file_item for file_item in files or [] if is_spreadsheet_attachment(file_item)]
+    if not spreadsheet_files:
+        return []
+
+    try:
+        from open_webui.tools.contrib.excel_analyzer import Tools as ExcelAnalyzerTools
+
+        analyzer = ExcelAnalyzerTools()
+        result = await analyzer.inspect_uploaded_spreadsheet(
+            __files__=spreadsheet_files,
+            __user__={'id': user.id} if user else None,
+        )
+    except Exception as e:
+        log.warning(f'Automatic spreadsheet analysis failed: {e}')
+        return []
+
+    try:
+        payload = json.loads(result)
+    except Exception:
+        payload = {'result': result}
+
+    if payload.get('error') and not payload.get('files'):
+        log.warning(f'Automatic spreadsheet analysis returned no files: {payload.get("error")}')
+        return []
+
+    names = []
+    for item in spreadsheet_files:
+        file_data = item.get('file') or {}
+        names.append(
+            item.get('name')
+            or item.get('filename')
+            or file_data.get('filename')
+            or file_data.get('meta', {}).get('name')
+            or item.get('id')
+            or 'spreadsheet'
+        )
+
+    content = (
+        'Automatic spreadsheet analysis for attached file(s). This contains compact workbook '
+        'metadata such as sheet names, row counts, column counts, and headers; it is not a full cell dump.\n'
+        + json.dumps(payload, ensure_ascii=False)
+    )
+
+    source_id = 'spreadsheet-analysis:' + ','.join(str(name) for name in names)
+    return [
+        {
+            'source': {
+                'id': source_id,
+                'name': 'Spreadsheet analysis: ' + ', '.join(str(name) for name in names),
+                'type': 'file',
+            },
+            'document': [content],
+            'metadata': [
+                {
+                    'source': source_id,
+                    'name': 'Spreadsheet analysis',
+                    'attachment_spreadsheet_analysis': True,
+                }
+            ],
+        }
+    ]
+
+
 def build_attachment_fallback_sources(files: list | None) -> list:
     """
     Build a small source record when uploaded files produced no retrievable text.
@@ -2996,6 +3081,23 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             sources.extend(flags.get('sources', []))
         except Exception as e:
             log.exception(e)
+
+    if files and not sources:
+        spreadsheet_sources = await build_spreadsheet_analysis_sources(files, user)
+        if spreadsheet_sources:
+            sources.extend(spreadsheet_sources)
+            if event_emitter:
+                await event_emitter(
+                    {
+                        'type': 'status',
+                        'data': {
+                            'action': 'sources_retrieved',
+                            'count': len(spreadsheet_sources),
+                            'description': 'Attached spreadsheet was analyzed automatically.',
+                            'done': True,
+                        },
+                    }
+                )
 
     if files and not sources:
         fallback_sources = build_attachment_fallback_sources(files)
