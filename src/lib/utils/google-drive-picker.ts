@@ -191,7 +191,8 @@ export const createPicker = () => {
 							const blob = await response.blob();
 							// Append extension if the filename doesn't already have one,
 							// so the backend can identify the file type for content extraction.
-							const hasExtension = fileName.includes('.') && fileName.lastIndexOf('.') > fileName.lastIndexOf('/');
+							const hasExtension =
+								fileName.includes('.') && fileName.lastIndexOf('.') > fileName.lastIndexOf('/');
 							const resolvedName = hasExtension ? fileName : fileName + fileExtension;
 							const result = {
 								id: fileId,
