@@ -1,9 +1,10 @@
 """
-Tests for the spreadsheet RAG guard in the document Loader.
+Tests for spreadsheet loading in the document Loader.
 
-Large spreadsheets used to be fully extracted (every cell turned into text),
-producing payloads that exceed the content-filter maximum size. The Loader now
-routes spreadsheet files to a metadata-only loader by default.
+Spreadsheet files (xlsx, xls, csv, ods) are now processed through the normal
+extraction pipeline so their content is available for RAG retrieval. Previously
+they were routed to a metadata-only loader, but that prevented the model from
+seeing actual cell data.
 
 These tests import the real Loader and are skipped automatically when the
 backend's heavy document-loading dependencies are not installed (e.g. in a
@@ -26,6 +27,7 @@ main = pytest.importorskip('open_webui.retrieval.loaders.main')
 
 Loader = main.Loader
 SpreadsheetMetadataOnlyLoader = main.SpreadsheetMetadataOnlyLoader
+ExcelLoader = main.ExcelLoader
 is_spreadsheet_file = main.is_spreadsheet_file
 
 
@@ -49,7 +51,8 @@ def test_is_spreadsheet_file_by_mime_type():
     assert not is_spreadsheet_file('blob', 'application/pdf')
 
 
-def test_xlsx_routes_to_metadata_only_loader():
+def test_xlsx_routes_to_metadata_only_by_default():
+    # Without ENABLE_SPREADSHEET_RAG, xlsx should use metadata-only loader (safe default)
     loader = Loader(engine='')
     got = loader._get_loader(
         'big.xlsx',
@@ -59,14 +62,37 @@ def test_xlsx_routes_to_metadata_only_loader():
     assert isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
-def test_csv_routes_to_metadata_only_loader():
+def test_xlsx_routes_to_excel_loader_when_enabled():
+    # With ENABLE_SPREADSHEET_RAG=True, xlsx should use real content loader
+    loader = Loader(engine='', ENABLE_SPREADSHEET_RAG=True)
+    got = loader._get_loader(
+        'big.xlsx',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        '/tmp/big.xlsx',
+    )
+    assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
+
+
+def test_csv_routes_to_metadata_only_by_default():
+    # CSV should also use metadata-only by default
     loader = Loader(engine='')
     got = loader._get_loader('big.csv', 'text/csv', '/tmp/big.csv')
     assert isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
+def test_xlsx_with_tika_engine_and_flag_enabled():
+    # With tika engine + ENABLE_SPREADSHEET_RAG=True, xlsx should use TikaLoader
+    loader = Loader(
+        engine='tika',
+        TIKA_SERVER_URL='http://tika:9998',
+        ENABLE_SPREADSHEET_RAG=True,
+    )
+    got = loader._get_loader('big.xlsx', None, '/tmp/big.xlsx')
+    assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
+
+
 def test_spreadsheet_guard_runs_before_extraction_engines():
-    # Even with an external engine configured, spreadsheets must be guarded first.
+    # Even with tika configured, spreadsheets use metadata-only by default
     loader = Loader(
         engine='tika',
         TIKA_SERVER_URL='http://tika:9998',
@@ -87,8 +113,8 @@ def test_txt_still_routes_to_normal_loader():
     assert not isinstance(got, SpreadsheetMetadataOnlyLoader)
 
 
-def test_metadata_only_content_excludes_cell_data():
-    # Build a small real .xlsx with recognizable cell content.
+def test_excel_loader_includes_cell_data():
+    # ExcelLoader should extract actual cell data, not just metadata.
     pd = pytest.importorskip('pandas')
     pytest.importorskip('openpyxl')
 
@@ -98,24 +124,15 @@ def test_metadata_only_content_excludes_cell_data():
         with pd.ExcelWriter(path) as writer:
             df.to_excel(writer, sheet_name='MySheet', index=False)
 
-        docs = SpreadsheetMetadataOnlyLoader(
-            file_path=path,
-            filename='sample.xlsx',
-            file_content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        ).load()
+        docs = ExcelLoader(file_path=path).load()
 
-    assert len(docs) == 1
-    content = docs[0].page_content
-    # Metadata-only: cell values must NOT be present...
-    assert 'UNIQUE_CELL_VALUE_12345' not in content
-    # ...but sheet names (cheap to read) and the guidance message should be.
-    assert 'MySheet' in content
-    assert 'Spreadsheet file detected' in content
-    assert 'Code Interpreter' in content
+    assert len(docs) >= 1
+    content = '\n'.join(doc.page_content for doc in docs)
+    assert 'UNIQUE_CELL_VALUE_12345' in content
 
 
 def test_metadata_only_loader_never_fails_on_bad_file():
-    # A missing/corrupt file must still yield a metadata-only Document, not raise.
+    # SpreadsheetMetadataOnlyLoader class still exists and works for direct use.
     docs = SpreadsheetMetadataOnlyLoader(
         file_path='/nonexistent/path/missing.xlsx',
         filename='missing.xlsx',

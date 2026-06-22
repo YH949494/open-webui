@@ -491,13 +491,12 @@ class Loader:
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
         file_ext = filename.split('.')[-1].lower()
 
-        # Spreadsheet guard: route spreadsheet files to a metadata-only loader before
-        # any extraction engine is selected. This prevents full workbook contents from
-        # being expanded into text and injected into RAG/file/chat context, which would
-        # exceed the content-filter maximum payload.
-        if is_spreadsheet_file(filename, file_content_type):
+        # Route spreadsheets to metadata-only unless ENABLE_SPREADSHEET_RAG is on.
+        # Large workbooks expand into massive text payloads that exceed content-filter
+        # limits; the metadata-only path keeps uploads safe by default.
+        if not self.kwargs.get('ENABLE_SPREADSHEET_RAG', False) and is_spreadsheet_file(filename, file_content_type):
             log.info(
-                'Skipping RAG processing for spreadsheet file to avoid oversized content filter payload: %s',
+                'Skipping RAG processing for spreadsheet file (set ENABLE_SPREADSHEET_RAG=true to enable): %s',
                 filename,
             )
             return SpreadsheetMetadataOnlyLoader(
