@@ -1980,6 +1980,7 @@
 	"Skills Public Sharing": "Publiczne udostępnianie umiejętności",
 	"Skills Sharing": "Udostępnianie umiejętności",
 	"Skip Cache": "Pomiń Cache",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Pomiń pamięć podręczną i uruchom wnioskowanie ponownie. Domyślnie Fałsz.",
 	"Something went wrong :/": "Coś poszło nie tak :/",
 	"Sonar": "Sonar",

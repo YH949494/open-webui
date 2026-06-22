@@ -1968,6 +1968,7 @@
 	"Skills Public Sharing": "Öffentliches Teilen von Skills",
 	"Skills Sharing": "Teilen von Skills",
 	"Skip Cache": "Cache überspringen",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Cache überspringen und die Inferenz erneut ausführen. Standardmäßig deaktiviert.",
 	"Something went wrong :/": "Etwas ist schiefgelaufen :/",
 	"Sonar": "Sonar",

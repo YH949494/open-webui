@@ -1968,6 +1968,7 @@
 	"Skills Public Sharing": "Yeteneklerin Herkese Açık Paylaşımı",
 	"Skills Sharing": "Yeteneklerin Paylaşımı",
 	"Skip Cache": "Önbelleği Atla",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Önbelleği atlayın ve çıkarımı yeniden çalıştırın. Varsayılan olarak False.",
 	"Something went wrong :/": "Bir şeyler yanlış gitti :/",
 	"Sonar": "Sonar",

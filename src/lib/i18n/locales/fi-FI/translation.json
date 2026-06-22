@@ -1968,6 +1968,7 @@
 	"Skills Public Sharing": "Taitojen julkinen jakaminen",
 	"Skills Sharing": "Taitojen jako",
 	"Skip Cache": "Ohita välimuisti",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Ohita välimuisti ja suorita päätelmä uudelleen. Oletusarvo ei käytössä.",
 	"Something went wrong :/": "Jokin meni pieleen :/",
 	"Sonar": "Sonar",

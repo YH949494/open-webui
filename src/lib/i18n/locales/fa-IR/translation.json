@@ -1968,6 +1968,7 @@
 	"Skills Public Sharing": "",
 	"Skills Sharing": "",
 	"Skip Cache": "رد کردن کش",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "کش را رد کرده و استنتاج را مجدداً اجرا کنید. پیش\u200cفرض: False.",
 	"Something went wrong :/": "مشکلی پیش آمد :/",
 	"Sonar": "سونار",

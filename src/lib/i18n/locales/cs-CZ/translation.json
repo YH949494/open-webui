@@ -1980,6 +1980,7 @@
 	"Skills Public Sharing": "",
 	"Skills Sharing": "",
 	"Skip Cache": "Přeskočit mezipaměť",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Přeskočit mezipaměť a znovu spustit inferenci. Výchozí hodnota je False.",
 	"Something went wrong :/": "Něco se pokazilo :/",
 	"Sonar": "Sonar",
