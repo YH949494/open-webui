@@ -88,9 +88,7 @@ def build_loader_from_config(request):
     return Loader(
         engine=config.CONTENT_EXTRACTION_ENGINE,
         ENABLE_SPREADSHEET_RAG=(
-            str(getattr(config.ENABLE_SPREADSHEET_RAG, "value", config.ENABLE_SPREADSHEET_RAG))
-            .lower()
-            == "true"
+            str(getattr(config.ENABLE_SPREADSHEET_RAG, 'value', config.ENABLE_SPREADSHEET_RAG)).lower() == 'true'
         ),
         DATALAB_MARKER_API_KEY=config.DATALAB_MARKER_API_KEY,
         DATALAB_MARKER_API_BASE_URL=config.DATALAB_MARKER_API_BASE_URL,
