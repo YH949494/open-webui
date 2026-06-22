@@ -1847,7 +1847,7 @@
 	"Searxng search language (all, en, es, de, fr, etc.)": "",
 	"See readme.md for instructions": "निर्देशों के लिए readme.md देखें",
 	"See what's new": "देखें, क्या नया है",
-	"Seed": "सीड्‌",
+	"Seed": "सीड्\u200c",
 	"Select": "",
 	"Select {{modelName}} model": "",
 	"Select a base model": "एक आधार मॉडल का चयन करें",

@@ -1917,7 +1917,7 @@
 	"Sets how far back for the model to look back to prevent repetition.": "திரும்பத் திரும்ப வருவதைத் தடுக்க, மாடல் எவ்வளவு பின்னோக்கிப் பார்க்க வேண்டும் என்பதை அமைக்கிறது.",
 	"Sets the random number seed to use for generation. Setting this to a specific number will make the model generate the same text for the same prompt.": "தலைமுறைக்கு பயன்படுத்த சீரற்ற எண் விதையை அமைக்கிறது. இதை ஒரு குறிப்பிட்ட எண்ணுக்கு அமைப்பது மாதிரியானது அதே உரையில் அதே உரையை உருவாக்கும்.",
 	"Sets the size of the context window used to generate the next token.": "அடுத்த டோக்கனை உருவாக்கப் பயன்படுத்தப்படும் சூழல் சாளரத்தின் அளவை அமைக்கிறது.",
-	"Sets the stop sequences to use. When this pattern is encountered, the LLM will stop generating text and return. Multiple stop patterns may be set by specifying multiple separate stop parameters in a modelfile.": "பயன்படுத்த நிறுத்த வரிசைகளை அமைக்கிறது. இந்த வடிவத்தை எதிர்கொள்ளும்போது, ​​LLM உரையை உருவாக்குவதை நிறுத்திவிட்டு திரும்பும். ஒரு மாதிரிக்கோப்பில் பல தனித்தனி நிறுத்த அளவுருக்களைக் குறிப்பிடுவதன் மூலம் பல நிறுத்த வடிவங்கள் அமைக்கப்படலாம்.",
+	"Sets the stop sequences to use. When this pattern is encountered, the LLM will stop generating text and return. Multiple stop patterns may be set by specifying multiple separate stop parameters in a modelfile.": "பயன்படுத்த நிறுத்த வரிசைகளை அமைக்கிறது. இந்த வடிவத்தை எதிர்கொள்ளும்போது, \u200b\u200bLLM உரையை உருவாக்குவதை நிறுத்திவிட்டு திரும்பும். ஒரு மாதிரிக்கோப்பில் பல தனித்தனி நிறுத்த அளவுருக்களைக் குறிப்பிடுவதன் மூலம் பல நிறுத்த வடிவங்கள் அமைக்கப்படலாம்.",
 	"Setting": "அமைத்தல்",
 	"Settings": "அமைப்புகள்",
 	"Settings Permissions": "அமைப்புகள் அனுமதிகள்",
