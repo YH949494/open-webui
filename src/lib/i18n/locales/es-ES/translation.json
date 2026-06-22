@@ -1974,6 +1974,7 @@
 	"Skills Public Sharing": "Compartir Habilidad Publicamente",
 	"Skills Sharing": "Compartir Habilidad",
 	"Skip Cache": "Evitar Caché",
+	"Skip RAG Processing for Spreadsheets": "",
 	"Skip the cache and re-run the inference. Defaults to False.": "Evitar caché y reiniciar la interfaz. Valor predeterminado Falso",
 	"Something went wrong :/": "Algo ha ido mal :/",
 	"Sonar": "Sonar",
