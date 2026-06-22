@@ -955,6 +955,79 @@ def get_source_context(sources: list, source_ids: dict = None, include_content: 
     return context_string
 
 
+def build_attachment_fallback_sources(files: list | None) -> list:
+    """
+    Build a small source record when uploaded files produced no retrievable text.
+
+    This keeps the model aware that a file was attached even when extraction was
+    skipped, still pending, failed, or returned zero chunks.
+    """
+    fallback_sources = []
+    for file_item in files or []:
+        if not isinstance(file_item, dict):
+            continue
+
+        file_data = file_item.get('file') or {}
+        meta = file_data.get('meta') or {}
+        data = file_data.get('data') or {}
+
+        file_id = file_item.get('id') or file_data.get('id')
+        name = (
+            file_item.get('name')
+            or file_item.get('filename')
+            or file_data.get('filename')
+            or meta.get('name')
+            or file_id
+            or 'uploaded file'
+        )
+        content_type = file_item.get('content_type') or meta.get('content_type')
+        status = (
+            file_item.get('status')
+            or data.get('status')
+            or ('skipped' if data.get('process_skipped') or meta.get('process_skipped') else None)
+        )
+
+        notes = [
+            'The user attached this file, but no extracted text was available to the chat context.',
+            f'Filename: {name}',
+        ]
+        if content_type:
+            notes.append(f'Content type: {content_type}')
+        if status:
+            notes.append(f'Processing status: {status}')
+        if data.get('error'):
+            notes.append(f'Processing error: {data.get("error")}')
+        if data.get('process_skipped') or meta.get('process_skipped'):
+            notes.append('Text extraction/RAG processing was skipped for this upload.')
+        if name and is_spreadsheet_file(name):
+            notes.append(
+                'This appears to be a spreadsheet. Spreadsheet cell data is not automatically '
+                'injected when spreadsheet RAG skipping is enabled; use code interpreter or a '
+                'spreadsheet analysis tool to inspect cell contents.'
+            )
+
+        fallback_sources.append(
+            {
+                'source': {
+                    'id': file_id or name,
+                    'name': name,
+                    'type': 'file',
+                },
+                'document': ['\n'.join(notes)],
+                'metadata': [
+                    {
+                        'source': file_id or name,
+                        'name': name,
+                        'content_type': content_type,
+                        'attachment_fallback': True,
+                    }
+                ],
+            }
+        )
+
+    return fallback_sources
+
+
 async def apply_source_context_to_messages(
     request: Request,
     messages: list,
@@ -2923,6 +2996,23 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             sources.extend(flags.get('sources', []))
         except Exception as e:
             log.exception(e)
+
+    if files and not sources:
+        fallback_sources = build_attachment_fallback_sources(files)
+        if fallback_sources:
+            sources.extend(fallback_sources)
+            if event_emitter:
+                await event_emitter(
+                    {
+                        'type': 'status',
+                        'data': {
+                            'action': 'sources_retrieved',
+                            'count': 0,
+                            'description': 'Attached file metadata was added because no extractable text was available.',
+                            'done': True,
+                        },
+                    }
+                )
 
     # Save the pre-RAG message state so the native tool call loop can
     # restore to the true original (before file-source injection) rather
