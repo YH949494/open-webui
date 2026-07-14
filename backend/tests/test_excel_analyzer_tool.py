@@ -204,6 +204,185 @@ async def test_tool_works_without_attachment_path():
     assert kwargs.get('attachment_path') is None
 
 
+# --- row-level preview: merged cells, repeated headers, blanks, totals ----
+
+
+def _make_finance_xlsx(path: Path) -> None:
+    """Build a small "monthly expenses" sheet mirroring a real-world export:
+
+    - the ``Month`` cell is merged across each month's detail rows (a common
+      pattern from spreadsheets exported/copy-pasted out of reporting tools)
+    - a blank spacer row
+    - the header row repeated mid-sheet (e.g. from concatenating two exports)
+    - a trailing "Grand Total" summary row
+    """
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Expenses'
+
+    headers = ['Month', 'Description', 'Total (RM)']
+    ws.append(headers)
+
+    ws.append(['Jan', 'Rent', 1000])
+    ws.append([None, 'Utilities', 200])
+    ws.append([None, 'Supplies', 50])
+    ws.append(['Feb', 'Rent', 1000])
+    ws.append([None, 'Utilities', 220])
+    ws.merge_cells(start_row=2, end_row=4, start_column=1, end_column=1)
+    ws.merge_cells(start_row=5, end_row=6, start_column=1, end_column=1)
+
+    ws.append([None, None, None])  # blank row
+    ws.append(headers)  # repeated header row
+    ws.append(['Mar', 'Rent', 1000])
+    ws.append([None, 'Utilities', 210])
+    ws.append(['Grand Total', None, 2680])
+
+    wb.save(path)
+
+
+def test_analyze_xlsx_preview_preserves_merged_month_relationships(tmp_path):
+    """The root-cause regression: previews must not come back empty, and the
+    Month/Description/Total (RM) relationship must survive merged Month cells."""
+    xlsx = tmp_path / 'expenses.xlsx'
+    _make_finance_xlsx(xlsx)
+
+    result = Tools._analyze(str(xlsx), 'expenses.xlsx')
+    sheet = result['sheets'][0]
+
+    assert sheet['rows'] == 11  # header + 10 sheet rows, including blank/repeat/total
+    assert sheet['column_names'] == ['Month', 'Description', 'Total (RM)']
+
+    preview = sheet['preview']
+    assert preview != []
+    assert not sheet['preview_truncated']
+
+    # Blank row and the repeated header row are dropped entirely.
+    assert sheet['blank_rows_skipped'] == 1
+    assert sheet['repeated_header_rows_skipped'] == 1
+    assert sheet['grand_total_rows'] == 1
+    assert sheet['data_row_count'] == len(preview) == 8
+
+    # Merged "Month" cells are forward-filled onto every detail row they cover.
+    jan_rows = [r for r in preview if r['Month'] == 'Jan']
+    assert {r['Description'] for r in jan_rows} == {'Rent', 'Utilities', 'Supplies'}
+    assert [r['Total (RM)'] for r in jan_rows] == [1000, 200, 50]
+
+    feb_rows = [r for r in preview if r['Month'] == 'Feb']
+    assert {r['Description'] for r in feb_rows} == {'Rent', 'Utilities'}
+
+    # The Grand Total row stays in the preview (flagged), not silently dropped.
+    total_row = next(r for r in preview if r.get('is_summary_row'))
+    assert total_row['Month'] == 'Grand Total'
+    assert total_row['Total (RM)'] == 2680
+
+    # Value counts reflect the real per-column distribution, excluding the
+    # Grand Total row so it doesn't skew the counts.
+    month_counts = {v['value']: v['count'] for v in sheet['value_counts']['Month']}
+    assert month_counts == {'Jan': 3, 'Feb': 2, 'Mar': 1}
+    description_counts = {v['value']: v['count'] for v in sheet['value_counts']['Description']}
+    assert description_counts['Rent'] == 3
+    assert description_counts['Utilities'] == 3
+
+
+def test_analyze_xlsx_lightweight_mode_omits_preview(tmp_path):
+    """lightweight_mode is an explicit opt-out, not the default failure mode."""
+    xlsx = tmp_path / 'expenses.xlsx'
+    _make_finance_xlsx(xlsx)
+
+    result = Tools._analyze(str(xlsx), 'expenses.xlsx', lightweight_mode=True)
+    sheet = result['sheets'][0]
+
+    assert 'preview' not in sheet
+    assert 'value_counts' not in sheet
+    assert sheet['rows'] == 11
+    assert sheet['column_names'] == ['Month', 'Description', 'Total (RM)']
+
+
+def test_analyze_xlsx_large_sheet_gets_bounded_preview(tmp_path):
+    """Sheets above the full-preview threshold get a bounded sample, not a full dump."""
+    import openpyxl
+
+    xlsx = tmp_path / 'large.xlsx'
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(['id', 'value'])
+    for i in range(30):
+        ws.append([i, i * 2])
+    wb.save(xlsx)
+
+    result = Tools._analyze(
+        str(xlsx),
+        'large.xlsx',
+        full_preview_row_threshold=10,
+        bounded_preview_rows=5,
+    )
+    sheet = result['sheets'][0]
+
+    assert sheet['data_row_count'] == 30
+    assert sheet['preview_truncated'] is True
+    assert len(sheet['preview']) == 5
+    assert sheet['preview_omitted_rows'] == 25
+    assert sheet['preview'][0] == {'id': 0, 'value': 0}
+
+
+def test_analyze_csv_preview_preserves_row_relationships(tmp_path):
+    """Same root-cause coverage for CSV: blank line, repeated header, Grand Total."""
+    csv_path = tmp_path / 'expenses.csv'
+    csv_path.write_text(
+        'Month,Description,Total (RM)\n'
+        'Jan,Rent,1000\n'
+        'Jan,Utilities,200\n'
+        'Feb,Rent,1000\n'
+        '\n'
+        'Month,Description,Total (RM)\n'
+        'Mar,Rent,1000\n'
+        'Grand Total,,2200\n'
+    )
+
+    result = Tools._analyze(str(csv_path), 'expenses.csv')
+    sheet = result['sheets'][0]
+
+    preview = sheet['preview']
+    assert preview != []
+    assert sheet['repeated_header_rows_skipped'] == 1
+    assert sheet['grand_total_rows'] == 1
+
+    jan_rows = [r for r in preview if r['Month'] == 'Jan']
+    assert {r['Description'] for r in jan_rows} == {'Rent', 'Utilities'}
+
+    total_row = next(r for r in preview if r.get('is_summary_row'))
+    assert total_row['Total (RM)'] == 2200
+
+
+@pytest.mark.asyncio
+async def test_tool_end_to_end_preview_reaches_output(tmp_path):
+    """End-to-end through inspect_uploaded_spreadsheet: the preview a caller
+    (and, via build_spreadsheet_analysis_sources, the LLM) actually receives
+    is non-empty and keeps Month/Description/Total (RM) together."""
+    xlsx = tmp_path / 'expenses.xlsx'
+    _make_finance_xlsx(xlsx)
+
+    tool = Tools()
+    user = types.SimpleNamespace(id='u1', role='user')
+    __files__ = [
+        {
+            'type': 'file',
+            'id': 'file-1',
+            'name': 'expenses.xlsx',
+            'file': {'filename': 'expenses.xlsx', 'meta': {'name': 'x'}},
+        }
+    ]
+
+    with patch.object(tool, '_resolve_user', new=AsyncMock(return_value=user)), _stub_resolver(str(xlsx)):
+        out = json.loads(await tool.inspect_uploaded_spreadsheet(__files__=__files__, __user__={'id': 'u1'}))
+
+    sheet = out['files'][0]['sheets'][0]
+    assert sheet['preview'] != []
+    assert any(row.get('Month') == 'Jan' and row.get('Description') == 'Rent' for row in sheet['preview'])
+
+
 # --- resolver source contract (avoids heavy import) -----------------------
 
 

@@ -1016,7 +1016,8 @@ async def build_spreadsheet_analysis_sources(files: list | None, user) -> list:
 
     content = (
         'Automatic spreadsheet analysis for attached file(s). This contains compact workbook '
-        'metadata such as sheet names, row counts, column counts, and headers; it is not a full cell dump.\n'
+        'metadata (sheet names, row/column counts, headers) plus a row-level preview (full for small '
+        'sheets, bounded for large ones) and per-column top values; it is not a full cell dump.\n'
         + json.dumps(payload, ensure_ascii=False)
     )
 
