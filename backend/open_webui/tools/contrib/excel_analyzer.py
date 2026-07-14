@@ -49,11 +49,13 @@ providers. The same code path works on a Fly.io persistent volume because
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import os
 import zipfile
 from collections import Counter
+from decimal import Decimal
 from xml.etree import ElementTree as ET
 
 from pydantic import BaseModel, Field
@@ -439,17 +441,27 @@ class Tools:
         bounded_preview_rows: int,
         max_value_counts_per_column: int,
     ) -> dict:
-        """Build the row-level preview/value_counts fields for one xlsx sheet."""
+        """Build the row-level preview/value_counts fields for one xlsx sheet.
+
+        For sheets whose data rows exceed ``full_preview_row_threshold``, only
+        rows up to a bounded scan window are ever read into ``matrix`` — a
+        multi-million-row workbook must not materialize every cell just to
+        return a ``bounded_preview_rows``-sized sample.
+        """
+        total_data_rows = max(0, row_count - 1)
+        sample_only = total_data_rows > full_preview_row_threshold
+        scan_max_row = min(row_count, 1 + bounded_preview_rows) if sample_only else row_count
+
         matrix: dict[tuple[int, int], object] = {}
-        for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=row_count, values_only=False), start=1):
+        for r_idx, row in enumerate(ws.iter_rows(min_row=1, max_row=scan_max_row, values_only=False), start=1):
             for c_idx, cell in enumerate(row, start=1):
                 matrix[(r_idx, c_idx)] = getattr(cell, 'value', None)
 
         # Forward-fill merged ranges (e.g. a "Month" cell merged across several
         # detail rows) using the anchor cell's already-read value.
         for min_row, max_row, min_col, max_col in Tools._merged_ranges_xlsx(local_path, sheet_index):
-            anchor = matrix.get((min_row, min_col))
-            for r in range(min_row, max_row + 1):
+            for r in range(min_row, min(max_row, scan_max_row) + 1):
+                anchor = matrix.get((min_row, min_col))
                 for c in range(min_col, max_col + 1):
                     if matrix.get((r, c)) is None:
                         matrix[(r, c)] = anchor
@@ -458,15 +470,15 @@ class Tools:
         full_col_names = [str(c) if c is not None else '' for c in full_col_names]
 
         row_values = []
-        for r in range(2, row_count + 1):
+        for r in range(2, scan_max_row + 1):
             row_values.append([matrix.get((r, c)) for c in range(1, col_count + 1)])
 
         return Tools._summarize_rows(
             full_col_names,
             row_values,
-            full_preview_row_threshold,
-            bounded_preview_rows,
             max_value_counts_per_column,
+            sample_only=sample_only,
+            known_total_data_rows=total_data_rows,
         )
 
     @staticmethod
@@ -498,15 +510,20 @@ class Tools:
                 if include_insights:
                     sheet_info['insights'] = Tools._structural_insights(nrows, ncols, col_names)
                 if not lightweight_mode and nrows > 1 and ncols > 0:
+                    # xlrd loads the whole workbook into memory regardless, but
+                    # still bound how many rows we copy out into our own preview.
+                    total_data_rows = nrows - 1
+                    sample_only = total_data_rows > full_preview_row_threshold
+                    scan_max_row = min(nrows, 1 + bounded_preview_rows) if sample_only else nrows
                     full_col_names = [str(sh.cell_value(0, c)) for c in range(ncols)]
-                    row_values = [[sh.cell_value(r, c) for c in range(ncols)] for r in range(1, nrows)]
+                    row_values = [[sh.cell_value(r, c) for c in range(ncols)] for r in range(1, scan_max_row)]
                     sheet_info.update(
                         Tools._summarize_rows(
                             full_col_names,
                             row_values,
-                            full_preview_row_threshold,
-                            bounded_preview_rows,
                             max_value_counts_per_column,
+                            sample_only=sample_only,
+                            known_total_data_rows=total_data_rows,
                         )
                     )
                 sheets.append(sheet_info)
@@ -584,10 +601,9 @@ class Tools:
                 Tools._summarize_rows(
                     full_col_names,
                     row_values,
-                    full_preview_row_threshold,
-                    bounded_preview_rows,
                     max_value_counts_per_column,
                     sample_only=not read_all,
+                    known_total_data_rows=row_count,
                 )
             )
         return {'filename': display_name, 'sheets': [sheet_info]}
@@ -614,6 +630,21 @@ class Tools:
             return float(s)
         except ValueError:
             return v
+
+    @staticmethod
+    def _json_safe_value(v):
+        """Coerce a raw cell value into something json.dumps can handle.
+
+        openpyxl/xlrd return native ``datetime.date``/``datetime.datetime``/
+        ``datetime.time`` objects for date-formatted cells, which json.dumps
+        rejects outright; without this, a spreadsheet with a date column would
+        make the whole analysis fail instead of returning a preview.
+        """
+        if isinstance(v, (dt.datetime, dt.date, dt.time)):
+            return v.isoformat()
+        if isinstance(v, Decimal):
+            return float(v)
+        return v
 
     @staticmethod
     def _is_blank_row(values: list) -> bool:
@@ -643,7 +674,7 @@ class Tools:
         counters = {'blank_rows_skipped': 0, 'repeated_header_rows_skipped': 0, 'grand_total_rows': 0}
 
         for values in row_values:
-            values = list(values[:col_count]) + [None] * max(0, col_count - len(values))
+            values = [Tools._json_safe_value(v) for v in values[:col_count]] + [None] * max(0, col_count - len(values))
             if Tools._is_blank_row(values):
                 counters['blank_rows_skipped'] += 1
                 continue
@@ -678,18 +709,23 @@ class Tools:
     def _summarize_rows(
         col_names: list[str],
         row_values: list[list],
-        full_preview_row_threshold: int,
-        bounded_preview_rows: int,
         max_value_counts_per_column: int,
         sample_only: bool = False,
+        known_total_data_rows: int | None = None,
     ) -> dict:
-        """Classify raw data rows and build the preview + value_counts fields."""
+        """Classify raw data rows and build the preview + value_counts fields.
+
+        ``row_values`` is exactly what should appear in the preview: callers
+        that only physically read a bounded sample (``sample_only=True``) pass
+        just that sample, not the whole sheet, so building it never requires
+        materializing more rows than the preview will actually show. In that
+        case ``known_total_data_rows`` (the true row count from a cheap
+        metadata-only read) is used for ``data_row_count``/``preview_omitted_rows``
+        instead of the sample size, so truncation is reported accurately rather
+        than looking like a small file that happened to fit.
+        """
         col_count = len(col_names)
         qualifying, counters = Tools._classify_rows(col_names, row_values)
-
-        total_qualifying = len(qualifying)
-        full_preview = total_qualifying <= full_preview_row_threshold
-        preview_rows = qualifying if full_preview else qualifying[:bounded_preview_rows]
 
         def _row_dict(values, is_summary):
             record = {(col_names[i] or f'col_{i + 1}'): values[i] for i in range(col_count)}
@@ -697,15 +733,22 @@ class Tools:
                 record['is_summary_row'] = True
             return record
 
-        preview = [_row_dict(values, is_summary) for values, is_summary in preview_rows]
+        preview = [_row_dict(values, is_summary) for values, is_summary in qualifying]
         value_counts = Tools._build_value_counts(col_names, qualifying, max_value_counts_per_column)
 
+        if sample_only:
+            data_row_count = known_total_data_rows if known_total_data_rows is not None else len(qualifying)
+            preview_omitted_rows = max(0, data_row_count - len(preview))
+        else:
+            data_row_count = len(qualifying)
+            preview_omitted_rows = 0
+
         result = {
-            'data_row_count': total_qualifying,
+            'data_row_count': data_row_count,
             **counters,
             'preview': preview,
-            'preview_truncated': not full_preview,
-            'preview_omitted_rows': 0 if full_preview else total_qualifying - len(preview_rows),
+            'preview_truncated': sample_only,
+            'preview_omitted_rows': preview_omitted_rows,
             'value_counts': value_counts,
         }
         if sample_only:

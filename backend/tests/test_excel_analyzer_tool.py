@@ -327,6 +327,94 @@ def test_analyze_xlsx_large_sheet_gets_bounded_preview(tmp_path):
     assert sheet['preview'][0] == {'id': 0, 'value': 0}
 
 
+def test_analyze_xlsx_large_sheet_does_not_materialize_every_cell(tmp_path, monkeypatch):
+    """A large sheet's row-level scan must stay bounded by bounded_preview_rows,
+    not read every row before the preview is truncated (memory/latency guard)."""
+    import openpyxl
+
+    xlsx = tmp_path / 'huge.xlsx'
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(['id', 'value'])
+    for i in range(5000):
+        ws.append([i, i * 2])
+    wb.save(xlsx)
+
+    seen_rows = []
+    wb2 = openpyxl.load_workbook(str(xlsx), read_only=True, data_only=True)
+    real_iter_rows = wb2.worksheets[0].__class__.iter_rows
+
+    def counting_iter_rows(self, *args, **kwargs):
+        for row in real_iter_rows(self, *args, **kwargs):
+            seen_rows.append(row)
+            yield row
+
+    monkeypatch.setattr('openpyxl.worksheet._read_only.ReadOnlyWorksheet.iter_rows', counting_iter_rows)
+    wb2.close()
+
+    result = Tools._analyze(
+        str(xlsx),
+        'huge.xlsx',
+        full_preview_row_threshold=200,
+        bounded_preview_rows=50,
+    )
+    sheet = result['sheets'][0]
+
+    assert sheet['data_row_count'] == 5000
+    assert sheet['preview_truncated'] is True
+    assert len(sheet['preview']) == 50
+    assert sheet['preview_omitted_rows'] == 4950
+    # The header pass (1 row) + the bounded data pass (<=51 rows) — not 5001 rows.
+    assert len(seen_rows) <= 52
+
+
+def test_analyze_xlsx_date_cells_are_json_serializable(tmp_path):
+    """A date/datetime column must not crash JSON serialization of the analysis."""
+    import datetime as dt
+
+    import openpyxl
+
+    xlsx = tmp_path / 'dated.xlsx'
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(['Date', 'Amount'])
+    ws.append([dt.date(2026, 1, 15), 100])
+    ws.append([dt.datetime(2026, 1, 16, 9, 30), 200])
+    wb.save(xlsx)
+
+    result = Tools._analyze(str(xlsx), 'dated.xlsx')
+    # Must round-trip through json.dumps without raising, exactly like _guard_output does.
+    raw = Tools._guard_output({'files': [result]})
+    reparsed = json.loads(raw)
+
+    sheet = reparsed['files'][0]['sheets'][0]
+    assert sheet['preview'][0]['Date'] == '2026-01-15T00:00:00'
+    assert sheet['preview'][1]['Date'] == '2026-01-16T09:30:00'
+    assert sheet['preview'][0]['Amount'] == 100
+
+
+def test_analyze_csv_large_file_reports_true_total_not_sample_size(tmp_path):
+    """A CSV above the threshold must report its true row count/omission, not the sample size."""
+    csv_path = tmp_path / 'big.csv'
+    lines = ['Month,Description,Total (RM)']
+    lines += [f'Jan,Item {i},{i}' for i in range(500)]
+    csv_path.write_text('\n'.join(lines) + '\n')
+
+    result = Tools._analyze(
+        str(csv_path),
+        'big.csv',
+        full_preview_row_threshold=100,
+        bounded_preview_rows=20,
+    )
+    sheet = result['sheets'][0]
+
+    assert sheet['data_row_count'] == 500
+    assert sheet['preview_truncated'] is True
+    assert len(sheet['preview']) == 20
+    assert sheet['preview_omitted_rows'] == 480
+    assert sheet.get('value_counts_from_sample') is True
+
+
 def test_analyze_csv_preview_preserves_row_relationships(tmp_path):
     """Same root-cause coverage for CSV: blank line, repeated header, Grand Total."""
     csv_path = tmp_path / 'expenses.csv'
