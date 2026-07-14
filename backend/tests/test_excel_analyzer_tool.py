@@ -491,3 +491,72 @@ def test_resolver_source_contract():
     assert 'resolved file id=' in body
     # Returns None (diagnostic-friendly) when the file has no stored path.
     assert 'has no stored path' in body
+
+
+# --- full pipeline: tool -> middleware source -> final LLM context --------
+
+
+@pytest.mark.asyncio
+async def test_row_level_data_reaches_final_llm_context(tmp_path):
+    """Regression test for the row-relationship bug fixed in PR #39.
+
+    Builds a small xlsx, runs it through the exact chain the live chat
+    request uses (``build_spreadsheet_analysis_sources`` ->
+    ``inspect_uploaded_spreadsheet`` -> ``_analyze_xlsx`` -> ``_guard_output``),
+    then through ``get_source_context`` (the function that turns sources into
+    the literal <source> text spliced into the model's messages). The
+    assertion is on a literal row triple, not just column names/counts, so it
+    fails if the preview is ever dropped again at any stage of the chain.
+    """
+    pytest.importorskip('openpyxl')
+    from unittest.mock import patch as _patch
+
+    from open_webui.models.users import Users
+    from open_webui.utils.middleware import build_spreadsheet_analysis_sources, get_source_context
+
+    xlsx = tmp_path / 'costs.xlsx'
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = 'Costs'
+    ws.append(['Month', 'Description', 'Total'])
+    ws.append(['February', 'Fly.io Server', 54.24])
+    ws.append(['February', 'Domain', 12.0])
+    ws.append(['March', 'Fly.io Server', 60.0])
+    wb.save(xlsx)
+
+    user = types.SimpleNamespace(id='u1', role='user')
+    files = [
+        {
+            'type': 'file',
+            'id': 'file-1',
+            'name': 'costs.xlsx',
+            'file': {'filename': 'costs.xlsx', 'meta': {'name': 'costs.xlsx'}},
+        }
+    ]
+
+    with (
+        _patch.object(Users, 'get_user_by_id', new=AsyncMock(return_value=user)),
+        _stub_resolver(str(xlsx)),
+    ):
+        sources = await build_spreadsheet_analysis_sources(files, user)
+
+    assert sources, 'expected an automatic spreadsheet-analysis source'
+
+    context = get_source_context(sources)
+
+    # Column-level stats alone are not the fix: the row-level relationship
+    # (February goes with Fly.io Server and 54.24, not with Domain/12.0) must
+    # be literally present in the exact text handed to the model.
+    assert 'February' in context
+    assert 'Fly.io Server' in context
+    assert '54.24' in context
+
+    payload = json.loads(context[context.index('{') : context.rindex('}') + 1])
+    preview = payload['files'][0]['sheets'][0]['preview']
+    assert preview == [
+        {'Month': 'February', 'Description': 'Fly.io Server', 'Total': 54.24},
+        {'Month': 'February', 'Description': 'Domain', 'Total': 12},
+        {'Month': 'March', 'Description': 'Fly.io Server', 'Total': 60},
+    ]
